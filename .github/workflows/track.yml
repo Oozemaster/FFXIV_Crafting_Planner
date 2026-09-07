@@ -1,0 +1,39 @@
+name: Track the market
+
+on:
+  schedule:
+    # 13:13 UTC = 8:13am Central while daylight saving is on, 7:13am otherwise.
+    # Cron here is always UTC and does not follow clock changes.
+    # The odd minute is deliberate: jobs scheduled on the hour queue behind
+    # everyone else's and get delayed more.
+    - cron: "13 13 * * *"
+  workflow_dispatch:        # lets you run it by hand from the Actions tab
+
+permissions:
+  contents: write           # needed so the job can commit what it collected
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Collect today's market data
+        env:
+          WORLD: Seraph
+          MAX_LEVEL: 50
+        run: node tracker.js
+
+      - name: Save it back to the repository
+        run: |
+          git config user.name  "market-tracker"
+          git config user.email "actions@github.com"
+          git add data
+          # Nothing changed is a normal outcome, not a failure.
+          git diff --staged --quiet && echo "no changes today" && exit 0
+          git commit -m "market data $(date -u +%Y-%m-%d)"
+          git push
