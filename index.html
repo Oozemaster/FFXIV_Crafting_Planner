@@ -39,6 +39,13 @@
   .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:16px; }
   .status { font-size:13px; color:var(--muted); min-height:20px; }
   .status.err { color:var(--bad); }
+  .groups { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;
+    padding-bottom:12px; border-bottom:1px solid var(--line); }
+  .groups label { display:inline-flex; align-items:center; gap:7px; font-size:13.5px;
+    font-weight:600; padding:6px 12px; border:1px solid var(--line); border-radius:6px;
+    cursor:pointer; }
+  .groups label.on { background:var(--accent-soft); border-color:var(--accent); color:var(--accent); }
+  .groups label input { width:auto; }
   .cats { display:flex; flex-wrap:wrap; gap:6px; max-height:190px; overflow-y:auto; }
   .cats label { display:inline-flex; align-items:center; gap:6px; font-size:13px; padding:5px 10px;
     border:1px solid var(--line); border-radius:20px; cursor:pointer; }
@@ -107,10 +114,10 @@
     <div><label class="field" for="slots">Slots per bundle</label><input type="number" id="slots" value="40" min="1" max="200"></div>
     <div><label class="field" for="maxper">Max of one item</label><input type="number" id="maxper" value="20" min="1" max="100"></div>
     <div><label class="field" for="tax">Sales tax %</label><input type="number" id="tax" value="10" min="0" max="25"></div>
-    <div><label class="field" for="stale">Ignore data older than (days)</label><input type="number" id="stale" value="14" min="1" max="365"></div>
+    <div><label class="field" for="stale">Ignore data older than (days)</label><input type="number" id="stale" value="180" min="1" max="730"></div>
     <div><label class="field" for="minprice">Min sale price (gil)</label><input type="number" id="minprice" value="5000" min="0" step="1000"></div>
     <div><label class="field" for="minsales">Min sales per week</label><input type="number" id="minsales" value="1" min="0" step="0.5"></div>
-    <div><label class="field" for="entry">Rival restocking %</label><input type="number" id="entry" value="100" min="0" max="300" step="10"></div>
+    <div><label class="field" for="margin">Safety margin %</label><input type="number" id="margin" value="20" min="0" max="90" step="5"></div>
     <div class="wide"><label class="field" for="mode">Intermediate parts</label>
       <select id="mode">
         <option value="craft" selected>Craft/Gather Yourself</option>
@@ -131,8 +138,9 @@
 
 <div class="panel" id="catPanel" hidden>
   <h2>What to consider crafting</h2>
+  <div class="groups" id="groups"></div>
   <div class="cats" id="cats"></div>
-  <div class="hint">Housing and furnishing categories are pre-selected — slow-moving and high-value, which suits a once-a-week restock.</div>
+  <div class="hint">Furnishings are selected by default: slow-moving and high-value, which suits a once-a-week restock. Groups match against the game's own category names, so a few land oddly.</div>
 </div>
 
 <div id="out"></div>
@@ -152,12 +160,10 @@
     near the top of this file's code, marked MANUAL NOTES — anything added there gets tagged wherever
     it appears and pulled to the top of the material lists. Company Seal materials are still detected
     automatically, and those are reliable.</p>
-    <p><strong>Rivals keep listing after you do.</strong> The competition is not only what is on
-    the board today — over the week other crafters add more, and in a settled market they add about
-    as many as sell, because every unit sold was listed by somebody. Comparing your stock against a
-    snapshot while demand is a weekly rate was mixing the two and flattered every recommendation.
-    "Rival restocking %" controls this: 100 assumes a settled market, 0 assumes nobody else lists all
-    week. Lower it if a week of real results shows things selling better than predicted.</p>
+    <p><strong>Competitors listing during the week are not modelled.</strong> Only what is on the
+    board at scan time counts as competition. The safety margin exists to cover this: the tool
+    deliberately fills only part of the gap between weekly demand and what is listed, leaving a
+    shortage rather than closing it.</p>
     <p><strong>The market board never runs out.</strong> Your own world's listings are used
     first, cheapest first. When they run short, the remainder is priced at the same average on
     the assumption you travel to another world to buy them — which you can, anywhere in North
@@ -449,27 +455,23 @@ async function loadMarket(world, ids, onProgress) {
   const out = new Map(), w = encodeURIComponent(world);
   let done = 0, missed = 0, batchesFailed = 0;
   // Fewer items per request, because each now carries up to 100 listings.
-  const batches = chunk(unique, 30);
+  const batches = chunk(unique, 25);
   for (const batch of batches) {
     if (batch.length === 1) batch.push(batch[0] === 5057 ? 5058 : 5057);
     const idStr = batch.join(",");
     try {
-      const [agg, det] = await Promise.all([
-        getJSON("https://universalis.app/api/v2/aggregated/" + w + "/" + idStr),
-        getJSON("https://universalis.app/api/v2/" + w + "/" + idStr + "?listings=100&entries=40")
-      ]);
-      for (const r of (agg.results || []))
-        out.set(r.itemId, { velocity: r.nq?.dailySaleVelocity?.world?.quantity || 0,
-                            aggAvg: r.nq?.averageSalePrice?.world?.price || 0 });
+      const det = await getJSON("https://universalis.app/api/v2/" + w + "/" + idStr +
+                                "?listings=30&entries=200");
       const items = det.items || {};
       for (const k of Object.keys(items)) {
-        const it = items[k], id = Number(k), prev = out.get(id) || { velocity: 0, aggAvg: 0 };
-        out.set(id, { ...prev,
-          history: (it.recentHistory || []).filter(h => !h.hq).map(h => h.pricePerUnit).filter(p => p > 0),
+        const it = items[k], id = Number(k);
+        out.set(id, {
+          history: (it.recentHistory || []).filter(h => !h.hq && h.pricePerUnit > 0)
+          .map(h => ({ p: h.pricePerUnit, q: h.quantity || 1, t: h.timestamp || 0 })),
           listings: (it.listings || []).filter(l => !l.hq)
           .map(l => ({ price: l.pricePerUnit, qty: l.quantity || 1,
                        who: l.retainerName || "", id: l.listingID || "" })),
-          clipped: (it.listings || []).length >= 100,
+          clipped: (it.listings || []).length >= 30,
           updated: it.lastUploadTime || 0 });
       }
     } catch (e) {
@@ -483,20 +485,25 @@ async function loadMarket(world, ids, onProgress) {
   return { market: out, missed, batchesFailed, total: unique.length };
 }
 
-const ABSURD = 2.5;
+const ABSURD = 2.0;   // listings above this multiple of the real sale price are not competition
 function priceOf(m) {
   if (!m) return null;
-  const med = median(m.history || []) || m.aggAvg || 0;
+  const med = median((m.history || []).map(h => h.p));
   if (!med) return null;
-  const real = (m.listings || []).filter(l => l.price <= med * ABSURD);
+  const raw = m.listings || [];
+  const real = raw.filter(l => l.price <= med * ABSURD);
   const supply = real.reduce((a, l) => a + l.qty, 0);
+  // Listings arrive cheapest first. If the last one we were given is still below
+  // the junk threshold there are more real listings beyond it, so `supply` is a
+  // floor rather than a count.
+  const crowded = !!m.clipped && raw.length > 0 && raw[raw.length - 1].price <= med * ABSURD;
   const lowest = real.length ? Math.min(...real.map(l => l.price)) : 0;
   // Forty listings from five retainers is a very different market from forty
   // listings from forty people. Count the people.
   const sellers = new Set(real.map(l => l.who).filter(Boolean)).size;
   return { median: med, listAt: lowest ? Math.min(lowest, med) : med, supply, sellers,
            realListings: real.length, openMarket: real.length === 0,
-           clipped: !!m.clipped,
+           crowded, clipped: !!m.clipped,
            junk: (m.listings || []).length - real.length };
 }
 const mkt = id => PRICE.get(id) || 0;
@@ -573,19 +580,64 @@ function expandRaw(id, qty, out, depth, seen) {
 // Model
 // ---------------------------------------------------------------------------
 
-// Competition is not just what is listed right now. Over the coming week rival
-// crafters will list more, and in a settled market they list roughly as many as
-// sell — every unit sold was put there by somebody. So the supply you compete
-// against is the current stock PLUS a week of rival restocking, not the stock
-// alone. Comparing your listings against a snapshot while demand is a weekly
-// flow was mixing a stock with a flow, and it flattered every recommendation.
+// Your share of weekly demand against what is currently listed. This does NOT
+// model competitors who list during the week — the tool has no measurement of
+// that, and guessing at it was worse than admitting the gap. The shortage model
+// will supply a measured figure.
+// Weekly demand from the raw sale records, weighted so recent weeks count for
+// more without letting one quiet or busy week dominate.
 //
-// entry is how much of weekly demand rivals resupply: 1 = a settled market,
-// 0 = nobody else lists anything all week.
-const expectedSales = (demand, supply, k, entry) => {
+//   weeks 0-4    50%
+//   weeks 4-12   30%
+//   older        20%
+//
+// Each band's rate is units sold divided by the weeks that band actually covers,
+// so a band holding only two weeks of history is not treated as four empty ones.
+// Bands with no history are dropped and the remaining weights renormalised.
+const WEEK = 604800;                      // seconds
+const DEMAND_BANDS = [[0, 4, 0.5], [4, 12, 0.3], [12, Infinity, 0.2]];
+
+function weeklyDemand(history, nowSec) {
+  if (!history || !history.length) return 0;
+  const now = nowSec || Date.now() / 1000;
+  const newest = Math.max(...history.map(h => h.t));
+  const oldest = Math.min(...history.map(h => h.t));
+  const raw = (Math.max(now, newest) - oldest) / WEEK;
+  // A handful of sales inside a few seconds is a burst, not a rate. Where the
+  // history is all we have, the span is floored at a week so four sales in one
+  // afternoon read as 4/week rather than 28. Where the history was cut off at the
+  // request limit there is genuinely more of it, so the real span is used.
+  const truncated = history.length >= 200;
+  const spanWeeks = truncated ? Math.max(raw, 1 / 7) : Math.max(raw, 1);
+
+  let num = 0, den = 0;
+  for (const [from, to, weight] of DEMAND_BANDS) {
+    if (spanWeeks <= from) continue;                       // no history reaches this band
+    const covered = Math.min(to, spanWeeks) - from;
+    if (covered <= 0) continue;
+    let units = 0;
+    for (const h of history) {
+      const age = (Math.max(now, newest) - h.t) / WEEK;
+      if (age >= from && age < to) units += h.q;
+    }
+    num += (units / covered) * weight;
+    den += weight;
+  }
+  return den ? num / den : 0;
+}
+
+// The most you should make: the gap between what sells each week and what is
+// already listed, less a safety margin. The margin covers everything the model
+// does not see — chiefly competitors listing after you, but also demand moving.
+// Rounded up, so it always bites.
+function safeUnits(demand, supply, margin) {
+  const headroom = Math.max(0, demand - supply);
+  return Math.max(0, Math.floor(headroom - Math.ceil(headroom * margin)));
+}
+
+const expectedSales = (demand, supply, k) => {
   if (k <= 0) return 0;
-  const rivals = supply + demand * (entry == null ? 1 : entry);
-  return Math.min(k, demand * k / (rivals + k));
+  return Math.min(k, demand * k / (supply + k));
 };
 
 function buildCandidates(pool, cfg) {
@@ -594,8 +646,11 @@ function buildCandidates(pool, cfg) {
     const p = priceOf(MARKET.get(r.itemId));
     if (!p || p.listAt < cfg.minPrice) continue;
     const m = MARKET.get(r.itemId);
-    const demand = (m.velocity || 0) * 7;
+    const demand = weeklyDemand(m.history);
     if (demand < cfg.minSales) continue;
+    // More listings than we can see means the competition is deeper than the
+    // count, and by then it is not a market worth entering.
+    if (p.crowded) continue;
     if (!m.updated || (now - m.updated) > cfg.staleDays * DAY) continue;
 
     const y = Math.max(1, r.yield), cost = {};
@@ -620,23 +675,23 @@ function buildCandidates(pool, cfg) {
   return rows;
 }
 
-function allocate(rows, totalSlots, maxPer, mode, entry) {
+function allocate(rows, totalSlots, maxPer, mode, margin) {
   const plan = rows.map(r => ({ row: r, k: 0 }));
   for (let s = 0; s < totalSlots; s++) {
     let best = null, bestGain = 0;
     for (const p of plan) {
       const mg = p.row.margin[mode];
       if (mg <= 0) continue;
-      if (p.k >= Math.min(maxPer, Math.ceil(p.row.demand) + 1)) continue;
-      const gain = (expectedSales(p.row.demand, p.row.supply, p.k + 1, entry) -
-                    expectedSales(p.row.demand, p.row.supply, p.k, entry)) * mg;
+      if (p.k >= Math.min(maxPer, safeUnits(p.row.demand, p.row.supply, margin))) continue;
+      const gain = (expectedSales(p.row.demand, p.row.supply, p.k + 1) -
+                    expectedSales(p.row.demand, p.row.supply, p.k)) * mg;
       if (gain > bestGain) { bestGain = gain; best = p; }
     }
     if (!best) break;
     best.k++;
   }
   return plan.filter(p => p.k > 0)
-    .map(p => ({ row: p.row, k: p.k, sales: expectedSales(p.row.demand, p.row.supply, p.k, entry) }))
+    .map(p => ({ row: p.row, k: p.k, sales: expectedSales(p.row.demand, p.row.supply, p.k) }))
     .sort((a, b) => b.sales * b.row.margin[mode] - a.sales * a.row.margin[mode]);
 }
 
@@ -785,7 +840,7 @@ function render() {
   if (!LAST) return;
   const { rows, cfg } = LAST;
   const planMode = cfg.mode;
-  const bundles = allocate(rows, cfg.portfolios * cfg.slots, cfg.maxPer, planMode, cfg.entry);
+  const bundles = allocate(rows, cfg.portfolios * cfg.slots, cfg.maxPer, planMode, cfg.margin);
   const pfs = partition(bundles, cfg.portfolios, cfg.slots, planMode);
   const grand = pfs.reduce((a, p) => a + p.value, 0);
   const used = pfs.reduce((a, p) => a + p.slots, 0);
@@ -839,10 +894,11 @@ function render() {
           it.k + '&times;</span> ' + itemLink(r.name) + noteTag(r.name) + tags + '<div class="mats">' + mats + '</div></td>' +
           '<td class="l"><span class="pri ' + cls + '">' + label + '</span></td>' +
           '<td class="l">' + esc(r.job) + '</td><td>' + r.level + '</td><td>' + gil(r.listAt) + '</td>' +
-          '<td title="' + r.supply + ' units listed now by ' + (r.sellers || 0) + ' seller(s). ' +
-            'Weekly demand ' + r.demand.toFixed(1) + '; rivals are assumed to list about ' +
-            (r.demand * (LAST.cfg.entry == null ? 1 : LAST.cfg.entry)).toFixed(0) +
-            ' more over the week.">' + r.supply + (r.clipped ? '+' : '') +
+          '<td title="' + r.supply + ' units listed now by ' + (r.sellers || 0) + ' seller(s), ' +
+            'against weekly demand of ' + r.demand.toFixed(1) + '. Gap of ' +
+            Math.max(0, r.demand - r.supply).toFixed(1) + ', of which at most ' +
+            safeUnits(r.demand, r.supply, LAST.cfg.margin == null ? 0.2 : LAST.cfg.margin) +
+            ' should be filled after the safety margin.">' + r.supply + (r.clipped ? '+' : '') +
             ' <span style="color:var(--muted)">vs ' + r.demand.toFixed(0) + '/wk &middot; ' +
             (r.sellers || 0) + ' seller' + ((r.sellers || 0) === 1 ? '' : 's') + '</span></td>' +
           '<td title="At the cheapest listing it would be ' + gil(r.margin[dm]) +
@@ -858,8 +914,8 @@ function render() {
 
   if (TAB === "all") {
     const ranked = rows.slice().sort((a, b) =>
-      (b.margin[planMode] * Math.min(1, b.demand / (b.supply + b.demand * cfg.entry + 1))) -
-      (a.margin[planMode] * Math.min(1, a.demand / (a.supply + a.demand * cfg.entry + 1))));
+      (b.margin[planMode] * Math.min(1, b.demand / (b.supply + 1))) -
+      (a.margin[planMode] * Math.min(1, a.demand / (a.supply + 1))));
     html += '<div class="tablewrap"><table><thead><tr><th class="l">Item</th><th class="l">Job</th>' +
       '<th>Lvl</th><th>Sells for</th><th>Sales/wk</th><th>Units listed</th>' +
       '<th title="Profit per unit buying the intermediate parts from the market">Buy From Market</th>' +
@@ -874,7 +930,7 @@ function render() {
         '<td title="' + r.realListings + ' listings holding ' + r.supply + ' units">' +
         r.supply + (r.clipped ? '+' : '') +
         (r.junk ? ' <span style="color:var(--muted)" title="' + r.junk +
-          ' listing(s) priced more than 2.5x what this item actually sells for. Treated as decoration, not competition.">(+' +
+          ' listing(s) priced more than 2x what this item actually sells for. Treated as decoration, not competition.">(+' +
           r.junk + ' overpriced)</span>' : '') + '</td>' +
         '<td>' + gil(r.margin.buy) + '</td><td>' + gil(r.margin.craft) + '</td></tr>';
     html += '</tbody></table></div>';
@@ -989,7 +1045,7 @@ function applySession(d) {
   if (c.staleDays) $("stale").value = c.staleDays;
   if (c.minPrice != null) $("minprice").value = c.minPrice;
   if (c.minSales != null) $("minsales").value = c.minSales;
-  if (c.entry != null) $("entry").value = Math.round(c.entry * 100);
+  if (c.margin != null) $("margin").value = Math.round(c.margin * 100);
   if (c.mode) $("mode").value = c.mode;
 
   // Show the categories this scan used, so the page reads consistently.
@@ -1045,7 +1101,13 @@ $("fileIn").onchange = e => {
 // Wiring
 // ---------------------------------------------------------------------------
 
-const HOUSING = /furnish|table|chair|bed|rug|wall|floor|garden|outdoor|exterior|fence|roof|window|door|partition|stage|placard|orchestrion/i;
+const GROUPS = [
+  ["Furnishings", /furnish|table|chair|bed|rug|wall|floor|garden|outdoor|exterior|fence|roof|window|door|partition|stage|placard|orchestrion|ceiling|lamp|light/i],
+  ["Materials",   /^(stone|metal|lumber|cloth|leather|bone|reagent|ingredient|crystal|dye|part|catalyst|seafood)/i],
+  ["Gear",        /arm$|arms$|grimoire|shield|^head$|^body$|^legs$|^hands$|^feet$|^waist$|necklace|earrings|bracelets|^ring$|primary tool|secondary tool/i],
+  ["Consumables", /^(meal|medicine)$/i]
+];
+const HOUSING = GROUPS[0][1];
 
 $("btnLoad").onclick = async () => {
   $("btnLoad").disabled = true;
@@ -1070,7 +1132,44 @@ $("btnLoad").onclick = async () => {
       return '<label class="' + (on ? "on" : "") + '"><input type="checkbox" value="' + esc(c) + '"' +
         (on ? " checked" : "") + '> ' + esc(c) + ' <span style="color:var(--muted)">' + counts[c] + '</span></label>';
     }).join("");
-    $("cats").onchange = e => e.target.closest("label").classList.toggle("on", e.target.checked);
+    $("cats").onchange = e => {
+      e.target.closest("label").classList.toggle("on", e.target.checked);
+      syncGroups();
+    };
+
+    // Group toggles. Ticking one selects every category it matches; unticking
+    // clears them. They are additive, so Furnishings and Materials can both be on.
+    const allCats = Object.keys(counts);
+    const inGroup = (name, cat) => name === "All" ? true
+      : (GROUPS.find(g => g[0] === name) || [])[1].test(cat);
+
+    $("groups").innerHTML = ["All", ...GROUPS.map(g => g[0])].map(name =>
+      '<label data-group="' + esc(name) + '"><input type="checkbox"> Select ' + esc(name) + '</label>'
+    ).join("");
+
+    const boxes = () => [...document.querySelectorAll("#cats input")];
+    function syncGroups() {
+      // A group shows ticked only when every category it covers is selected.
+      for (const lab of $("groups").querySelectorAll("label")) {
+        const name = lab.dataset.group;
+        const members = boxes().filter(b => inGroup(name, b.value));
+        const on = members.length > 0 && members.every(b => b.checked);
+        lab.querySelector("input").checked = on;
+        lab.classList.toggle("on", on);
+      }
+    }
+    $("groups").onchange = e => {
+      const name = e.target.closest("label").dataset.group;
+      const want = e.target.checked;
+      for (const b of boxes()) {
+        if (!inGroup(name, b.value)) continue;
+        b.checked = want;
+        b.closest("label").classList.toggle("on", want);
+      }
+      syncGroups();
+    };
+    syncGroups();
+
     $("catPanel").hidden = false;
     setStatus(RECIPES.length + " tradeable recipes, " + GATHERABLE.size + " gatherable materials, " +
               SEALS.size + " seal-shop items. Now scan the market.");
@@ -1090,9 +1189,9 @@ $("btnScan").onclick = async () => {
     const cfg = { world: $("world").value.trim() || "Seraph",
       portfolios: +$("pf").value || 5, slots: +$("slots").value || 20,
       maxPer: +$("maxper").value || 10, tax: (+$("tax").value || 10) / 100,
-      staleDays: +$("stale").value || 14, minPrice: +$("minprice").value || 0,
+      staleDays: +$("stale").value || 180, minPrice: +$("minprice").value || 0,
       minSales: +$("minsales").value || 0, mode: $("mode").value,
-      entry: (+$("entry").value >= 0 ? +$("entry").value : 100) / 100 };
+      margin: (+$("margin").value >= 0 ? +$("margin").value : 20) / 100 };
 
     const ids = new Set(), names = new Map();
     const addTree = (id, depth) => {
@@ -1132,7 +1231,7 @@ $("btnScan").onclick = async () => {
       const med = p ? p.median : 0;
       // Only listings within reach of the real sale price count as buyable.
       const real = (m.listings || []).filter(l => !med || l.price <= med * ABSURD)
-                     .sort((a, b) => a.price - b.price).slice(0, 60);
+                     .sort((a, b) => a.price - b.price).slice(0, 30);
       if (real.length) LADDER.set(id, real);
     }
 
