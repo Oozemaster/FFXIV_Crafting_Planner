@@ -86,9 +86,9 @@ type column says which.
 | Sale history fetched | Last **200 sales** per item | Count | Feeds both the market price and weekly demand. |
 | Market price | Last **40 sales** of those | Count | Deliberate. The last 40 sales are what the item is selling for now, regardless of how long they took. |
 | Weekly demand bands | **0-4 weeks at 50%**, **4-12 weeks at 30%**, **older at 20%** | Duration | Recent weeks count more without one quiet week dominating. |
-| Listings fetched | Up to **100 listings** per item | Count | Competition depth and the material price ladder. |
-| Price ladder retained | Cheapest **60** real listings | Count | Material cost calculation. |
-| Staleness cutoff | **14 days** | Duration | Items whose last upload is older are dropped entirely. |
+| Listings fetched | Cheapest **30 listings** per item | Count | Competition depth and the material price ladder. Universalis returns listings cheapest first, so these are the only ones competing with you. |
+| Price ladder retained | Cheapest **30** real listings | Count | Material cost calculation. |
+| Staleness cutoff | **180 days** | Duration | Items whose last upload is older are dropped entirely. |
 | Tracker sale window | Last **48 hours** per run | Duration | Overlaps the daily gap; duplicates are removed by matching timestamp, item, price and quantity. |
 
 ---
@@ -165,6 +165,11 @@ sellers      = count of distinct retainerName across realListings
 
 Anything above the cutoff is excluded from competition and shown as "overpriced".
 
+**Items with 30 or more real listings are dropped entirely.** Only the cheapest 30
+listings are fetched. If the 30th is still below the junk cutoff there are more beyond it
+that we cannot see, so `supply` would be a floor rather than a count — and 30 sellers
+already ahead of you is not a market worth entering.
+
 **Example — Cobalt Ingot.** 40 listings from 5 distinct retainers, 19 held by one of
 them.
 
@@ -214,6 +219,9 @@ band 12+ weeks    weight 0.20
 bandRate     = unitsSoldInBand / weeksTheBandCovers
 weeklyDemand = sum(bandRate x weight) / sum(weights used)
 ```
+
+Bands are measured backwards from **today**, not from the item's most recent sale. An
+item that sold forty times but nothing in six months reads as 0.32 per week, not 3.55.
 
 Where the history is not truncated, the span is floored at one week, so four sales in one
 afternoon read as 4 per week rather than 28.
@@ -297,11 +305,12 @@ Judgment calls, not game rules.
 | Setting | Current | Effect |
 |---|---|---|
 | Junk listing cutoff | 2.0x market price | Listings above this multiple are excluded from competition. |
+| Listings fetched | Cheapest 30 | Also the point at which an item counts as too crowded to enter. |
 | Safety margin | 20% | Share of the demand-minus-supply gap deliberately left unfilled, rounded up. Covers competitors and anything else the model does not see. |
 | Max of one item | 20 | Upper limit on units of a single item within one bundle. |
 | Minimum sale price | 5,000 gil | Items below this are excluded. |
 | Minimum sales per week | 1 | Items below this are excluded. |
-| Staleness cutoff | 14 days | Items not uploaded within this period are excluded. |
+| Staleness cutoff | 180 days | Items not uploaded within this period are excluded. |
 | Vendor-cheap threshold | 100 gil | Materials a vendor sells below this are classed as buy rather than gather. |
 | Priority bands | 50% / 80% | Cumulative share of a bundle's expected value. |
 | Market price window | Last 40 sales | How many sales define the current price. |
