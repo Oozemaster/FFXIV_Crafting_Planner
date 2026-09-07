@@ -1,0 +1,389 @@
+itemId,name,category
+6347,Riviera Cottage Roof (Wood),Roof
+6348,Riviera Cottage Roof (Composite),Roof
+6349,Riviera Cottage Roof (Stone),Roof
+6350,Riviera House Roof (Wood),Roof
+6351,Riviera House Roof (Composite),Roof
+6352,Riviera House Roof (Stone),Roof
+6356,Glade Cottage Roof (Wood),Roof
+6357,Glade Cottage Roof (Composite),Roof
+6358,Glade Cottage Roof (Stone),Roof
+6359,Glade House Roof (Wood),Roof
+6360,Glade House Roof (Composite),Roof
+6361,Glade House Roof (Stone),Roof
+6365,Oasis Cottage Roof (Wood),Roof
+6366,Oasis Cottage Roof (Composite),Roof
+6367,Oasis Cottage Roof (Stone),Roof
+6368,Oasis House Roof (Wood),Roof
+6369,Oasis House Roof (Composite),Roof
+6370,Oasis House Roof (Stone),Roof
+6374,Riviera Cottage Wall (Wood),Exterior Wall
+6375,Riviera Cottage Wall (Composite),Exterior Wall
+6376,Riviera Cottage Wall (Stone),Exterior Wall
+6377,Riviera House Wall (Wood),Exterior Wall
+6378,Riviera House Wall (Composite),Exterior Wall
+6379,Riviera House Wall (Stone),Exterior Wall
+6383,Glade Cottage Wall (Wood),Exterior Wall
+6384,Glade Cottage Wall (Composite),Exterior Wall
+6385,Glade Cottage Wall (Stone),Exterior Wall
+6386,Glade House Wall (Wood),Exterior Wall
+6387,Glade House Wall (Composite),Exterior Wall
+6388,Glade House Wall (Stone),Exterior Wall
+6392,Oasis Cottage Wall (Wood),Exterior Wall
+6393,Oasis Cottage Wall (Composite),Exterior Wall
+6394,Oasis Cottage Wall (Stone),Exterior Wall
+6395,Oasis House Wall (Wood),Exterior Wall
+6396,Oasis House Wall (Composite),Exterior Wall
+6397,Oasis House Wall (Stone),Exterior Wall
+6401,Riviera Arched Window,Window
+6402,Riviera Bay Window,Window
+6403,Riviera Oblong Window,Window
+6404,Glade Classical Window,Window
+6405,Glade Rounded Window,Window
+6406,Glade Lancet Window,Window
+6407,Oasis Oblong Window,Window
+6408,Oasis Lancet Window,Window
+6409,Oasis Octagonal Window,Window
+6410,Riviera Wooden Door,Door
+6411,Riviera Studded Door,Door
+6412,Riviera Ornate Door,Door
+6413,Glade Classical Door,Door
+6414,Glade Lancet Door,Door
+6415,Glade Arched Door,Door
+6416,Oasis Arched Door,Door
+6417,Oasis Crowned Door,Door
+6418,Oasis Classical Door,Door
+6419,Riviera Rounded Chimney,Roof Decoration
+6420,Riviera Stone Chimney,Roof Decoration
+6421,Glade Thatch Chimney,Roof Decoration
+6422,Glade Rounded Chimney,Roof Decoration
+6423,Oasis Stone Chimney,Roof Decoration
+6424,Oasis Rounded Chimney,Roof Decoration
+6425,Chocobo Weathervane,Roof Decoration
+6426,Apkallu Weathervane,Roof Decoration
+6427,Cactuar Weathervane,Roof Decoration
+6428,Riviera Wooden Awning,Exterior Wall Decoration
+6429,Riviera Awning,Exterior Wall Decoration
+6430,Glade Tiled Awning,Exterior Wall Decoration
+6431,Glade Awning,Exterior Wall Decoration
+6432,Oasis Wooden Awning,Exterior Wall Decoration
+6433,Oasis Awning,Exterior Wall Decoration
+6434,Riviera Wall Chimney,Exterior Wall Decoration
+6435,Glade Wall Chimney,Exterior Wall Decoration
+6436,Oasis Wall Chimney,Exterior Wall Decoration
+6437,Riviera Placard,Placard
+6438,Glade Placard,Placard
+6439,Oasis Placard,Placard
+6440,Riviera Hanging Placard,Placard
+6441,Glade Hanging Placard,Placard
+6442,Oasis Hanging Placard,Placard
+6443,Riviera Banner,Placard
+6444,Glade Banner,Placard
+6445,Oasis Banner,Placard
+6446,Riviera Roofed Wall,Fence
+6447,Riviera Picket Wall,Fence
+6448,Riviera Stone Wall,Fence
+6449,Glade Cobblestone Wall,Fence
+6450,Glade Thatch Wall,Fence
+6451,Glade Roundpole Fence,Fence
+6452,Oasis Wooden Wall,Fence
+6453,Oasis Stone Wall,Fence
+6454,Oasis Ornate Fence,Fence
+6455,Riviera Interior Wall,Interior Wall
+6456,Glade Interior Wall,Interior Wall
+6457,Oasis Interior Wall,Interior Wall
+6458,Riviera Flooring,Flooring
+6459,Glade Flooring,Flooring
+6460,Oasis Flooring,Flooring
+6475,Moogle Letter Box,Outdoor Furnishing
+6476,Shroud Broadleaf,Outdoor Furnishing
+6477,Island Palm,Outdoor Furnishing
+6478,Desert Ironwood,Outdoor Furnishing
+6479,Unbreakable Rock,Outdoor Furnishing
+6480,Mossy Rock,Outdoor Furnishing
+6481,Campfire,Outdoor Furnishing
+6482,Linen Parasol,Outdoor Furnishing
+6483,Lotus Parasol,Outdoor Furnishing
+6484,Walnut Table,Outdoor Furnishing
+6485,Mythril Table,Outdoor Furnishing
+6486,Brass Bench,Outdoor Furnishing
+6487,Oaken Bench,Outdoor Furnishing
+6488,Half Barrel Planter,Outdoor Furnishing
+6489,Low Barrel Planter,Outdoor Furnishing
+6490,Riviera Lamppost,Outdoor Furnishing
+6491,Crofter's Wain,Outdoor Furnishing
+6492,Stump Stool,Outdoor Furnishing
+6494,Firewood,Outdoor Furnishing
+6501,Dark Divinity Falleth,Outdoor Furnishing
+6503,Blue Coral Formation,Outdoor Furnishing
+6505,Cannonballs,Outdoor Furnishing
+6506,Stone Vigil Beacon,Outdoor Furnishing
+6507,Bloodblossoms,Outdoor Furnishing
+6508,Death's Fingers,Outdoor Furnishing
+6509,Turnkey's Cups,Outdoor Furnishing
+6510,Pyrepods,Outdoor Furnishing
+6511,Ghostmaws,Outdoor Furnishing
+6512,Amdapori Beacon,Outdoor Furnishing
+6513,Riviera Chair,Furnishing
+6514,Glade Chair,Furnishing
+6515,Oasis Chair,Furnishing
+6516,Morbol Chair,Furnishing
+6517,Ahriman Chair,Furnishing
+6518,Sylphic Chair,Furnishing
+6519,Manor Stool,Furnishing
+6520,Manor Highback Chair,Furnishing
+6521,Knight Captain's Chair,Furnishing
+6523,Riviera Bench,Furnishing
+6524,Glade Bench,Furnishing
+6525,Oasis Bench,Furnishing
+6529,Riviera Armchair,Furnishing
+6530,Glade Armchair,Furnishing
+6531,Oasis Armchair,Furnishing
+6532,Riviera Couch,Furnishing
+6533,Glade Couch,Furnishing
+6534,Oasis Couch,Furnishing
+6535,Manor Couch,Furnishing
+6542,Riviera Bed,Furnishing
+6543,Glade Bed,Furnishing
+6544,Oasis Bed,Furnishing
+6548,Ash Cabinet,Table
+6549,Riviera Wardrobe,Furnishing
+6550,Glade Wardrobe,Furnishing
+6551,Oasis Wardrobe,Furnishing
+6552,Manor Wardrobe,Furnishing
+6559,Company Chest,Furnishing
+6560,Riviera Cupboard,Furnishing
+6561,Glade Cupboard,Furnishing
+6562,Oasis Cupboard,Furnishing
+6563,Manor Cupboard,Furnishing
+6564,Ahriman Cupboard,Table
+6565,Sylphic Cupboard,Furnishing
+6566,Riviera Bookshelf,Furnishing
+6567,Glade Bookshelf,Furnishing
+6568,Oasis Bookshelf,Furnishing
+6569,Manor Bookshelf,Furnishing
+6570,Ahriman Bookshelf,Furnishing
+6571,Sylphic Bookshelf,Furnishing
+6572,Morbol Bookshelf,Furnishing
+6573,Riviera Pillar,Furnishing
+6574,Glade Pillar,Furnishing
+6575,Oasis Pillar,Furnishing
+6576,Riviera Partition,Furnishing
+6577,Glade Partition,Furnishing
+6578,Oasis Partition,Furnishing
+6579,Mahogany Screen,Furnishing
+6580,Ahriman Screen,Furnishing
+6581,Sylphic Screen,Furnishing
+6582,Morbol Screen,Furnishing
+6583,Riviera Floor Lamp,Furnishing
+6584,Glade Floor Lamp,Furnishing
+6585,Oasis Floor Lamp,Furnishing
+6586,Manor Candelabra,Furnishing
+6588,Mandragora Floor Lamp,Furnishing
+6590,Deluxe Manor Fireplace,Furnishing
+6591,Riviera Bathtub,Furnishing
+6592,Glade Bathtub,Furnishing
+6593,Oasis Bathtub,Furnishing
+6594,Terracotta Pot,Furnishing
+6595,Potted Maguey,Furnishing
+6596,Astroscope,Furnishing
+6599,Llymlaen's Embrace,Furnishing
+6601,Riviera Round Table,Table
+6602,Oasis Round Table,Table
+6603,Glade Round Table,Table
+6604,Ahriman Round Table,Table
+6606,Riviera Table,Table
+6607,Glade Table,Table
+6608,Oasis Table,Table
+6609,Sylphic Table,Table
+6610,Riviera Dining Table,Table
+6611,Glade Dining Table,Table
+6612,Oasis Dining Table,Table
+6613,Walnut Dining Table,Table
+6614,Sylphic Dining Table,Table
+6615,Manor Table,Table
+6616,Riviera Desk,Table
+6617,Oasis Desk,Table
+6618,Glade Desk,Table
+6619,Manor Desk,Table
+6620,Knight Captain's Desk,Table
+6621,Walnut Cartonnier,Table
+6622,Glade Cartonnier,Table
+6623,Glade Sideboard,Table
+6624,Glade Drawer Table,Table
+6625,Manor Flower Stand,Table
+6626,Ahriman Sideboard,Table
+6627,Riviera Stall,Table
+6628,Glade Stall,Table
+6629,Oasis Stall,Table
+6630,Riviera Counter,Table
+6631,Glade Counter,Table
+6632,Oasis Counter,Table
+6633,Sylphic Counter,Table
+6634,Manor Fireplace,Table
+6635,Brass Pricket,Tabletop
+6636,Riviera Lantern,Tabletop
+6637,Glade Lantern,Tabletop
+6638,Oasis Lantern,Tabletop
+6639,Riviera Flower Vase,Tabletop
+6640,Glade Flower Vase,Tabletop
+6641,Oasis Flower Vase,Tabletop
+6642,Sylphic Flower Vase,Tabletop
+6643,Ahriman Flower Vase,Tabletop
+6644,Potted Axilflower,Tabletop
+6645,Potted Azalea,Tabletop
+6646,Potted Spider Plant,Tabletop
+6647,Table Chronometer,Tabletop
+6648,Ahriman Chronometer,Tabletop
+6649,Ink & Quill,Tabletop
+6650,Weighing Scale,Tabletop
+6651,Gemscope,Tabletop
+6654,Stuffed Chocobo,Tabletop
+6663,Galleass Wheel,Wall-mounted
+6667,Sylphic Wall Lantern,Wall-mounted
+6668,Nymian Wall Lantern,Wall-mounted
+6669,Amdapori Wall Lantern,Wall-mounted
+6670,Belah'dian Crystal Lantern,Wall-mounted
+6671,Wall Chronometer,Wall-mounted
+6673,Riviera Rug,Rug
+6674,Riviera Fringed Rug,Rug
+6675,Riviera Oval Rug,Rug
+6676,Glade Rug,Rug
+6677,Glade Fringed Rug,Rug
+6678,Glade Blossom Rug,Rug
+6679,Oasis Rug,Rug
+6680,Oasis Argyle Rug,Rug
+6681,Oasis Leaf Rug,Rug
+6682,Sheep Rug,Rug
+6683,Goobbue Rug,Rug
+6685,Morbol Rug,Rug
+7073,Riviera Table Chronometer,Tabletop
+7074,Glade Wall Chronometer,Wall-mounted
+7084,Lalafellin Step Stool,Furnishing
+7085,Stuffed Ahriman,Tabletop
+7086,Ahriman Vase,Tabletop
+7109,Manor Music Stool,Furnishing
+7114,Manor Music Stand,Furnishing
+7131,Country Interior Wall,Interior Wall
+7132,Stone Interior Wall,Interior Wall
+7136,Tiled Interior Wall,Interior Wall
+7137,Metal Interior Wall,Interior Wall
+7138,Arbor Interior Wall,Interior Wall
+7139,Chocobo Interior Wall,Interior Wall
+7141,Country Flooring,Flooring
+7142,Stone Flooring,Flooring
+7146,Tiled Flooring,Flooring
+7147,Metal Flooring,Flooring
+7148,Arbor Flooring,Flooring
+7149,Chocobo Flooring,Flooring
+7767,Fish Meal,Gardening
+7958,Riviera Wall Shelf,Wall-mounted
+7959,Gourmet Lunch,Tabletop
+7962,Assorted Fruit,Tabletop
+7963,Chilled Red,Tabletop
+7970,Wall Planter,Wall-mounted
+7973,Riviera Half Partition,Table
+7976,Model Star Globe,Tabletop
+7978,Corner Counter,Table
+7979,Planter Partition,Furnishing
+7983,Riviera Doormat,Rug
+7992,Rounded Shrub,Outdoor Furnishing
+7993,Lattice Planter,Outdoor Furnishing
+7994,Water Lilies,Outdoor Furnishing
+7996,Cast-iron Cookpot,Outdoor Furnishing
+7997,Stepladder,Outdoor Furnishing
+7998,Straight Stepping Stones,Outdoor Furnishing
+7999,Curved Stepping Stones,Outdoor Furnishing
+8002,Planter Box,Outdoor Furnishing
+8007,Riviera Flora Interior Wall,Interior Wall
+8008,Glade Flora Interior Wall,Interior Wall
+8009,Oasis Flora Interior Wall,Interior Wall
+8011,Striped Interior Wall,Interior Wall
+8012,Mosaic Interior Wall,Interior Wall
+8013,Bisque Flooring,Flooring
+8015,Ceramic Tile Flooring,Flooring
+8786,Riviera Stool,Furnishing
+8787,Glade Stool,Furnishing
+8788,Oasis Stool,Furnishing
+8790,Masonwork Stove,Furnishing
+8796,Shipping Crate,Table
+8797,Wine Barrel,Table
+8802,Starlight Dodo,Tabletop
+8804,Starlight Cake,Tabletop
+8805,Wall Lantern,Wall-mounted
+8806,Manor Sofa,Furnishing
+8811,Towel Hanger,Wall-mounted
+8813,Glade Doormat,Rug
+8814,Oasis Doormat,Rug
+8816,Large Planter Box,Outdoor Furnishing
+8820,Glade Lamppost,Outdoor Furnishing
+8821,Oasis Lamppost,Outdoor Furnishing
+8831,Masonwork Interior Wall,Interior Wall
+8832,Masonwork Flooring,Flooring
+8833,Checkered Flooring,Flooring
+8834,Iron Plate Flooring,Flooring
+9723,Wax Vegetables,Tabletop
+9726,Glade Tea Set,Tabletop
+9727,Riviera Supper,Tabletop
+9734,Oak Low Barrel Planter,Furnishing
+9736,Royal Partition,Furnishing
+9739,Dried Well,Outdoor Furnishing
+9746,Riviera Garden Table Set,Outdoor Furnishing
+9748,Retainer Cartonnier,Outdoor Furnishing
+9749,Retainer Counter,Outdoor Furnishing
+9766,Spotted Interior Wall,Interior Wall
+9767,Wavy Interior Wall,Interior Wall
+9770,Oasis Cobble Flooring,Flooring
+12095,Glade Half Partition,Table
+12096,Oasis Half Partition,Table
+12098,Display Stand,Table
+12114,Standing Signboard,Outdoor Furnishing
+12115,Laundry Pole,Outdoor Furnishing
+12235,Explorer's Campfire,Outdoor Furnishing
+13075,Oriental Round Table,Table
+13077,Funguar Chair,Furnishing
+13078,Mahogany Partition Door,Furnishing
+14181,Blank Grade 1 Orchestrion Roll,Orchestrion Roll
+14229,Another Round Orchestrion Roll,Orchestrion Roll
+14234,The Only Path Orchestrion Roll,Orchestrion Roll
+14235,A World Apart Orchestrion Roll,Orchestrion Roll
+14241,Riptide Orchestrion Roll,Orchestrion Roll
+14242,Dark Vows Orchestrion Roll,Orchestrion Roll
+14243,The Dark's Embrace Orchestrion Roll,Orchestrion Roll
+15146,Alpine Breakfast,Tabletop
+15151,Chirurgeon's Curtain,Furnishing
+15775,Tier 1 Aquarium,Tabletop
+15970,Mounted Box Shelf,Wall-mounted
+15974,Mounted Bookshelf,Furnishing
+16935,Grade 1 Picture Frame,Wall-mounted
+17955,Mounted Flower Vase,Wall-mounted
+17971,Easel,Tabletop
+23862,Pot of Cream Stew,Tabletop
+23874,Redoubtable Rolanberry Tart,Tabletop
+23879,Wooden Showcase,Tabletop
+23884,Mahogany Bunk Bed,Furnishing
+23891,Mounted Plate Rack,Wall-mounted
+23893,Bathroom Floor Tiles,Rug
+23894,Bathroom Wall Tiles,Wall-mounted
+24501,Small Imitation Window,Wall-mounted
+24507,Tree Slice Tower,Table
+24511,Wooden Loft,Wall-mounted
+24512,Wooden Steps,Wall-mounted
+24513,Wooden Beam,Wall-mounted
+24514,White Rectangular Partition,Furnishing
+24515,Bowl of Oden,Tabletop
+24522,Prism Pouch,Tabletop
+24524,Honey Pot,Tabletop
+24525,Red Carpet,Rug
+24526,Hanging Planter Shelf,Wall-mounted
+24536,Botanist's Garden,Outdoor Furnishing
+24538,Teal Blue Carpeting,Flooring
+24539,Black-and-white Interior Wall,Interior Wall
+27268,Walnut Interior Wall,Interior Wall
+27269,Brick Flooring,Flooring
+27271,Lily Floor Lamp,Furnishing
+27272,Lily Wall Lamp,Wall-mounted
+27274,Simple Curtain,Wall-mounted
+27295,Sandwich Basket,Tabletop
+27296,Wooden Handrail,Tabletop
+27297,Misplaced Eyeglasses,Tabletop
