@@ -1,4 +1,4 @@
-# FFXIV Weekly Craft Planner
+# FFXIV Crafting Planner
 
 Tells you what to craft and list each week on the market board, and splits the work
 into claimable **Bundles** so several people can craft without flooding the same items.
