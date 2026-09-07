@@ -19,6 +19,11 @@
   .wrap { max-width:1200px; margin:0 auto; padding:28px 20px 80px; }
   header h1 { font-size:26px; margin:0 0 4px; letter-spacing:-.01em; }
   header p.sub { margin:0 0 24px; color:var(--muted); }
+  /* Version stamp, format v[MM].[DD].[YY].[build-that-day]. Hard-coded at build
+     time on purpose: if the page still shows an old version, the upload did not
+     take. Increment the last digit for a second build on the same day. */
+  .stamp { display:inline-block; margin-left:10px; padding:2px 9px; border-radius:10px;
+    border:1px solid var(--line); font-size:11.5px; letter-spacing:.03em; white-space:nowrap; }
   .panel { background:var(--panel); border:1px solid var(--line); border-radius:var(--r);
     padding:18px 20px; margin-bottom:18px; }
   .panel h2 { font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted);
@@ -102,7 +107,8 @@
 
 <header>
   <h1>FFXIV Weekly Craft Planner</h1>
-  <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.</p>
+  <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
+    <span class="stamp">v09.07.26.1</span></p>
 </header>
 
 <div class="panel">
