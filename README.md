@@ -9,6 +9,9 @@ by number in Discord, craft it, list it.
 **This document describes the tool as it is built today.** The shortage model designed on
 2026-09-06 is not implemented — see [Designed but not built](#designed-but-not-built).
 
+The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
+does not match the version you last uploaded, the upload did not take. Current: `v09.07.26.1`.
+
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)
 - [Time windows](#time-windows)
