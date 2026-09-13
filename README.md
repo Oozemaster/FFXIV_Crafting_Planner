@@ -10,7 +10,7 @@ by number in Discord, craft it, list it.
 2026-09-06 is not implemented — see [Designed but not built](#designed-but-not-built).
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.07.26.1`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.13.26.1`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)
@@ -89,20 +89,25 @@ type column says which.
 | Sale history fetched | Last **200 sales** per item | Count | Feeds both the market price and weekly demand. |
 | Market price | Last **40 sales** of those | Count | Deliberate. The last 40 sales are what the item is selling for now, regardless of how long they took. |
 | Weekly demand bands | **0-4 weeks at 50%**, **4-12 weeks at 30%**, **older at 20%** | Duration | Recent weeks count more without one quiet week dominating. |
-| Listings fetched | Cheapest **30 listings** per item | Count | Competition depth and the material price ladder. Universalis returns listings cheapest first, so these are the only ones competing with you. |
+| Listings fetched | Cheapest **30 listings** per item | Count | Competition depth and the material price ladder. Universalis returns listings cheapest first, so these are the only ones competing with you. High-quality listings and your own retainers' listings are dropped from these as they are read. |
 | Price ladder retained | Cheapest **30** real listings | Count | Material cost calculation. |
 | Staleness cutoff | **180 days** | Duration | Items whose last upload is older are dropped entirely. |
+| Supply-age warning | **24 hours** | Duration | Items whose last upload is older than this are kept, but tagged with the age of the reading, because the supply count is that old. |
 | Tracker sale window | Last **48 hours** per run | Duration | Overlaps the daily gap; duplicates are removed by matching timestamp, item, price and quantity. |
 
 ---
 
 ## Tracker files
 
-Written to `data/` by a GitHub Action at 08:00 daily.
+Written to `data/` by a GitHub Action scheduled for 13:13 UTC daily. GitHub does not run
+scheduled jobs on time: the first 7 runs (2026-09-07 to 2026-09-13) started between 16:17
+and 17:18 UTC, which is 11:17 to 12:18 Central. Treat each reading as a midday one.
 
 ### `data/items.csv`
 
-`itemId, name, category`. Rewritten every run. Currently 388 items.
+`itemId, name, category`. Rewritten every run. 388 items through 2026-09-13; 398 from the
+next run, after the 10 Ceiling Light recipes were added to the tracker's category filter
+(it had not matched the planner's Furnishings group).
 
 ### `data/stock-YYYY-MM.csv`
 
@@ -161,12 +166,22 @@ sales between 9,500 and 45,999 gil, median 18,999. Priced at 18,999.
 ### 2. Real competition
 
 ```
-realListings = listings priced at or below marketPrice x 2.0
+realListings = listings priced at or below marketPrice x 2.0,
+               excluding your own retainers
 supply       = sum of quantities across realListings
 sellers      = count of distinct retainerName across realListings
 ```
 
 Anything above the cutoff is excluded from competition and shown as "overpriced".
+
+**Your own retainers** are named in the setup field (default `Spicy-soy, Momo-mochi`,
+matched case-insensitively). Their listings are removed as the data is read, so they never
+count as supply, as sellers, as the cheapest listing, or as a source to buy from. The row is
+tagged "N yours listed" so you know they were there. See the known defect on held stock.
+
+**Supply age.** If the item's last Universalis upload is more than 24 hours old, the row is
+tagged "supply N old" — the supply figure is from that moment and listings may have
+appeared since. Over 7 days the tag reads "stale".
 
 **Items with 30 or more real listings are dropped entirely.** Only the cheapest 30
 listings are fetched. If the 30th is still below the junk cutoff there are more beyond it
@@ -176,28 +191,55 @@ already ahead of you is not a market worth entering.
 **Example — Cobalt Ingot.** 40 listings from 5 distinct retainers, 19 held by one of
 them.
 
-### 3. Listing price
+### 3. Listing price, and buying price
 
 ```
-listAt = min(cheapest real listing, marketPrice)
+listAt = max(1, min(cheapest real listing - 1, marketPrice))
+buyAt  = min(cheapest real listing, marketPrice)
 ```
 
-Where no real listings exist, `listAt` is `marketPrice` and the item is tagged "open
+`listAt` is what you list at. The board sells cheapest first and a tie loses, so it goes
+one gil under the cheapest rival, or lower still if sales say the item is worth less.
+
+`buyAt` is what the same item costs when it is a material in something else. You pay the
+asking price; you do not get the gil off for undercutting. Every material price in the
+tool is `buyAt`.
+
+Where no real listings exist, both are `marketPrice` and the item is tagged "open
 market".
 
 ### 4. Material cost
 
-Listings are consumed cheapest first. Any shortfall beyond what your world has listed is
-priced at the average of what was consumed, on the assumption of travelling to another
-world.
+**Every ingredient written on the recipe is costed as bought.** An intermediate with a
+recipe of its own — Silver Ingot, Iron Rivets — is costed at its own market price, not at
+what its ingredients would cost. The market price is the measure of how hard the thing is
+to obtain, however you obtain it. Gathering or crafting a material yourself is therefore
+not a cost saving in this model; it is gil you did not spend, and the Mats each column is
+the most that gathering can add back to the profit shown.
+
+Two figures are computed:
 
 ```
-walk realListings cheapest first until quantity is met
-shortfall is priced at (gil spent so far) / (units bought so far)
+per unit, for ranking:   sum of (buyAt x quantity) over the recipe's ingredients
+for the bundle display:  walk realListings cheapest first until the quantity is met;
+                         shortfall priced at (gil spent so far) / (units bought so far),
+                         or at buyAt if nothing was listed at all
 ```
 
-Materials you gather yourself are priced at `marketPrice`, not zero, because the material
-could have been sold instead.
+A material with no listings but a sale history is costed at `buyAt`, which is its
+40-sale median. A row whose materials ran short is tagged "short: material name" and the
+tooltip says how many were needed, how many were listed, and whether the material has a
+recipe or can be gathered.
+
+**A material with no sale history is costed at zero**, on the rule agreed 2026-09-13:
+what nobody has bought cannot be sold either, so using it costs nothing. The row is tagged
+"material unpriced". Measured 2026-09-13: of the 288 materials reachable from the 398
+level-50 furnishing recipes, 287 have a sale on Seraph; the one that does not is Odin's
+Mantle, which is untradeable.
+
+Materials marked `selfSource` in `MANUAL_NOTES` (Nymian Orb) are costed at `buyAt` for the
+whole quantity rather than walked up the listing ladder, because they are farmed, not
+bought.
 
 **Example — Nymian Orb.** 12 listed on Seraph: one at 5,500, five between 7,000 and
 7,500, six at 10,000.
@@ -276,7 +318,9 @@ profitEach   = (listAt x 0.90) - materialCost
 valuePerSlot = expectedSales x profitEach
 ```
 
-The 0.90 is the 10% market board sales tax.
+The 0.90 is the 10% market board sales tax. There is one profit figure per item. The
+allocator ranks by the per-unit figure; the bundle view shows the ladder-walked figure for
+the quantity actually recommended, and the difference is the cheapest listing running out.
 
 ### 9. Slot allocation
 
@@ -314,12 +358,16 @@ Judgment calls, not game rules.
 | Minimum sale price | 5,000 gil | Items below this are excluded. |
 | Minimum sales per week | 1 | Items below this are excluded. |
 | Staleness cutoff | 180 days | Items not uploaded within this period are excluded. |
+| Supply-age warning | 24 hours | Items not uploaded within this period are tagged with the age of the reading. |
+| Own retainers | Spicy-soy, Momo-mochi | Listings from these are never counted as competition or as a source to buy from. Editable in the setup panel. |
 | Vendor-cheap threshold | 100 gil | Materials a vendor sells below this are classed as buy rather than gather. |
 | Priority bands | 50% / 80% | Cumulative share of a bundle's expected value. |
 | Market price window | Last 40 sales | How many sales define the current price. |
 | Demand weighting | 50% / 30% / 20% over 0-4, 4-12, 12+ weeks | How much recent weeks count toward demand. |
 | Demand span floor | 1 week | Stops a single burst reading as a high weekly rate. |
 | Recipe expansion depth | 6 levels | How far the raw material tree is followed. |
+| Unpriced material | 0 gil | A material with no sale history costs nothing. Rule of 2026-09-13. |
+| Failed request retry | Once, after 3 seconds | A Universalis request that fails three times in a row is tried once more at the end of the scan. |
 
 Fixed by the game: 10% sales tax; 40 listing slots per character.
 
@@ -372,8 +420,23 @@ shorter period than intended.
 **Stackable materials are undervalued.** The tool assumes one listing holds one item,
 which is true for furnishings and false for materials.
 
+**Your own unsold stock is invisible to the quantity calculation.** Excluding your
+retainers is right for pricing and competition, but it also hides the units you are
+already holding, so for an item you already have listed the tool over-states the headroom
+by exactly that many units. Until a build separates the two questions, skip any item still
+listed from your previous bundle.
+
 **Prices are home-world only.** Off-world purchases are priced at the local average
 rather than the actual off-world price, which is usually lower.
 
 **Intraday stockouts are invisible.** A shelf that empties at noon and refills by evening
-is not detected by an 08:00 daily reading.
+is not detected by a daily reading taken around midday.
+
+**Blanking a setup field does not restore its default.** An empty Safety margin reads as
+0%, an empty Sales tax as 10%, and a 0 entered for tax also reads as 10%. Empty Slots per
+bundle and Max of one item fall back to 20 and 10 rather than the page defaults of 40
+and 20. Only matters if a field is cleared.
+
+**A truncated history with any high-quality sales is not recognised as truncated.** The
+200-record check runs after high-quality sales are removed. Furnishings have no
+high-quality version, so this only affects materials.

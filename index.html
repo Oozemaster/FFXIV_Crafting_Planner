@@ -75,7 +75,6 @@
   .pf .jobs { font-size:12.5px; color:var(--muted); }
   .pf .worth { font-size:15px; font-weight:700; }
   .pf .right { display:flex; align-items:center; gap:12px; }
-  .pf select { width:auto; font-size:13px; padding:5px 8px; }
   .qty { font-weight:700; color:var(--accent); }
   .pri { font-size:10.5px; padding:2px 8px; border-radius:10px; border:1px solid currentColor; }
   .pri.p1 { color:var(--good); } .pri.p2 { color:var(--warn); } .pri.p3 { color:var(--muted); }
@@ -108,7 +107,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.12.26.1</span></p>
+    <span class="stamp">v09.13.26.1</span></p>
 </header>
 
 <div class="panel">
@@ -124,11 +123,6 @@
     <div><label class="field" for="minprice">Min sale price (gil)</label><input type="number" id="minprice" value="5000" min="0" step="1000"></div>
     <div><label class="field" for="minsales">Min sales per week</label><input type="number" id="minsales" value="1" min="0" step="0.5"></div>
     <div><label class="field" for="margin">Safety margin %</label><input type="number" id="margin" value="20" min="0" max="90" step="5"></div>
-    <div class="wide"><label class="field" for="mode">Intermediate parts</label>
-      <select id="mode">
-        <option value="craft" selected>Craft/Gather Yourself</option>
-        <option value="buy">Buy From Market</option>
-      </select></div>
     <div class="wide"><label class="field" for="mine">Your own retainers (ignored as competition)</label>
       <input type="text" id="mine" placeholder="Spicy-soy, Momo-mochi" value="Spicy-soy, Momo-mochi"></div>
   </div>
@@ -160,7 +154,9 @@
     above the real sale price are ignored and not counted as competition.</p>
     <p><strong>You cannot sell more than you made.</strong> Expected sales are capped at the number of
     units in your bundle.</p>
-    <p><strong>An item with no sale history is dropped</strong> however lucrative it looks.</p>
+    <p><strong>An item with no sale history is dropped</strong> however lucrative it looks.
+    <strong>A material with no sale history is costed at zero</strong>, on the assumption that what
+    nobody has bought cannot be sold either. The craft is tagged so you can check before trusting it.</p>
     <p><strong>One listing holds one item.</strong> True for furnishings, false for stackable materials,
     which are undervalued here.</p>
     <p><strong>Unspoiled and timed nodes are not detected automatically.</strong> The game data links
@@ -176,10 +172,12 @@
     first, cheapest first. When they run short, the remainder is priced at the same average on
     the assumption you travel to another world to buy them — which you can, anywhere in North
     America. Crafts needing that trip are tagged.</p>
-    <p><strong>Gathered materials are not free.</strong> Everything is valued at its market price,
-    because anything you dig up you could have sold instead. Gathering versus buying decides whether
-    you spend an evening or spend gil — it does not change what the item cost to make. An expensive
-    material is expensive because it is hard to get, and that difficulty is a real cost however you pay it.</p>
+    <p><strong>Every material is costed as bought</strong>, at what the listings actually ask,
+    cheapest first. Profit is what you make if you buy the lot. Anything you gather or farm instead is
+    gil you did not spend, so the Mats each column is the most that gathering can add back — and an
+    expensive material is expensive because it is hard to get, which is a real cost however you pay it.
+    The Crafting Materials tab is the shopping list; the Raw Materials tab is the same list broken
+    down into things you can gather.</p>
     <p style="margin-bottom:0"><strong>Progress does not save automatically</strong> from a file on your
     hard drive — the browser forbids it. Use Save and Load session, or host the page.</p>
   </div>
@@ -332,7 +330,6 @@ let LADDER = new Map();   // item id -> [{price, qty}] ascending. The cheapest l
                           // is not an unlimited supply at that price, and for thin
                           // materials there may not be enough on the board at all.
 let LAST = null, TAB = "pf";
-let PF_MODE = {};                     // per-portfolio display mode
 let PROGRESS = { crafted: {}, gathered: {} };
 
 // ---------------------------------------------------------------------------
@@ -482,40 +479,62 @@ async function loadSeals() {
 async function loadMarket(world, ids, onProgress) {
   const unique = [...new Set(ids)].filter(n => n > 1);
   const out = new Map(), w = encodeURIComponent(world);
-  let done = 0, missed = 0, batchesFailed = 0;
+  let done = 0;
   // Fewer items per request, because each now carries up to 100 listings.
   const batches = chunk(unique, 25);
-  for (const batch of batches) {
+
+  const fetchBatch = async batch => {
+    // Universalis answers a one-item request in a different shape, so pad it.
     if (batch.length === 1) batch.push(batch[0] === 5057 ? 5058 : 5057);
-    const idStr = batch.join(",");
-    try {
-      const det = await getJSON("https://universalis.app/api/v2/" + w + "/" + idStr +
-                                "?listings=30&entries=200");
-      const items = det.items || {};
-      for (const k of Object.keys(items)) {
-        const it = items[k], id = Number(k);
-        out.set(id, {
-          history: (it.recentHistory || []).filter(h => !h.hq && h.pricePerUnit > 0)
-          .map(h => ({ p: h.pricePerUnit, q: h.quantity || 1, t: h.timestamp || 0 })),
-          // Your own retainers are not competition and you cannot buy from
-          // yourself, so they are dropped here, before anything counts supply,
-          // sellers, the cheapest price or the material ladder.
-          listings: (it.listings || []).filter(l => !l.hq && !isMine(l.retainerName))
-          .map(l => ({ price: l.pricePerUnit, qty: l.quantity || 1,
-                       who: l.retainerName || "", id: l.listingID || "" })),
-          mine: (it.listings || []).filter(l => !l.hq && isMine(l.retainerName)).length,
-          clipped: (it.listings || []).length >= 30,
-          updated: it.lastUploadTime || 0 });
-      }
-    } catch (e) {
-      // A batch that will not load costs us those items, not the whole scan.
-      missed += batch.length; batchesFailed++;
+    const det = await getJSON("https://universalis.app/api/v2/" + w + "/" + batch.join(",") +
+                              "?listings=30&entries=200");
+    const items = det.items || {};
+    for (const k of Object.keys(items)) {
+      const it = items[k], id = Number(k);
+      out.set(id, {
+        history: (it.recentHistory || []).filter(h => !h.hq && h.pricePerUnit > 0)
+        .map(h => ({ p: h.pricePerUnit, q: h.quantity || 1, t: h.timestamp || 0 })),
+        // Your own retainers are not competition and you cannot buy from
+        // yourself, so they are dropped here, before anything counts supply,
+        // sellers, the cheapest price or the material ladder.
+        listings: (it.listings || []).filter(l => !l.hq && !isMine(l.retainerName))
+        .map(l => ({ price: l.pricePerUnit, qty: l.quantity || 1,
+                     who: l.retainerName || "", id: l.listingID || "" })),
+        mine: (it.listings || []).filter(l => !l.hq && isMine(l.retainerName)).length,
+        clipped: (it.listings || []).length >= 30,
+        updated: it.lastUploadTime || 0 });
     }
+  };
+
+  const failed = [];
+  for (const batch of batches) {
+    // A batch that will not load costs us those items, not the whole scan.
+    try { await fetchBatch(batch); } catch (e) { failed.push(batch); }
     done += batch.length;
     onProgress(Math.min(done, unique.length), unique.length);
     await sleep(120);            // stay well under the rate limit
   }
-  return { market: out, missed, batchesFailed, total: unique.length };
+
+  // A batch that failed three times in a row almost always failed because
+  // Universalis was busy at that moment, not because the items do not exist.
+  // On 2026-09-09 two such batches silently dropped 50 of 691 items, and every
+  // material among them was then costed at zero. Wait a few seconds and ask
+  // once more before giving any of them up.
+  let batchesFailed = 0;
+  const lost = new Set();
+  if (failed.length) {
+    await sleep(3000);
+    for (const batch of failed) {
+      try { await fetchBatch(batch); } catch (e) { batchesFailed++; for (const id of batch) lost.add(id); }
+      await sleep(250);
+    }
+  }
+  // Two different absences: items a failed request never delivered, and items
+  // a successful request did not contain because Universalis has no record of
+  // them at all (untradeable, or never viewed by anyone running the uploader).
+  const missed = unique.filter(id => lost.has(id)).length;
+  const unknown = unique.filter(id => !out.has(id) && !lost.has(id)).length;
+  return { market: out, missed, unknown, batchesFailed, retried: failed.length, total: unique.length };
 }
 
 const ABSURD = 2.0;   // listings above this multiple of the real sale price are not competition
@@ -583,41 +602,18 @@ function ladderCost(id, units) {
 // ---------------------------------------------------------------------------
 // Cost model
 //
-// Every material is valued at its market price, whether you buy it or gather it.
-// A log you dug up is not free — you could have sold it, so using it costs you
-// what it was worth. Gathering versus buying decides whether you spend an evening
-// or spend gil; it does not change what the item cost to make. A material that is
-// expensive on the board is expensive because it is hard to get, and that
-// difficulty is a real cost whoever pays it.
+// Every ingredient written on the recipe is costed as bought, at its market
+// price. Profit is what you make if you buy the lot. An intermediate that has
+// its own recipe is still costed at its market price, not at what its own
+// ingredients would cost — the market price is the measure of how hard the
+// thing is to obtain, whichever way you obtain it. Anything you gather or farm
+// instead of buying is gil you did not spend, so the material cost is also the
+// most that gathering can add back to the profit shown.
 //
-// "buy"   — every ingredient at its market price.
-// "craft" — an ingredient with its own recipe costs the cheaper of buying it or
-//           making it from its ingredients, worked out recursively. That gap is
-//           real value added by the crafting step, not an accounting trick.
+// A material with no sale history on this world is costed at zero, on Shaun's
+// rule of 2026-09-13: what nobody has bought cannot be sold either, so using it
+// costs nothing. The row is tagged so the assumption is visible.
 // ---------------------------------------------------------------------------
-
-function unitCost(id, mode, memo, depth) {
-  const key = id + "|" + mode;
-  if (memo.has(key)) return memo.get(key);
-  const price = mkt(id) || 0;
-  let best = price || Infinity;
-  if (mode !== "buy" && depth < 6) {
-    const r = BY_ITEM.get(id);
-    if (r) {
-      memo.set(key, best);
-      let c = 0, ok = true;
-      for (const ing of r.ingredients) {
-        const u = unitCost(ing.id, mode, memo, depth + 1);
-        if (!isFinite(u)) { ok = false; break; }
-        c += u * ing.qty;
-      }
-      if (ok) { c /= Math.max(1, r.yield); if (c < best) best = c; }
-    }
-  }
-  if (!isFinite(best)) best = 0;
-  memo.set(key, best);
-  return best;
-}
 
 function expandRaw(id, qty, out, depth, seen) {
   const r = BY_ITEM.get(id);
@@ -692,7 +688,7 @@ const expectedSales = (demand, supply, k) => {
 };
 
 function buildCandidates(pool, cfg) {
-  const rows = [], now = Date.now(), memo = new Map();
+  const rows = [], now = Date.now();
   for (const r of pool) {
     const p = priceOf(MARKET.get(r.itemId));
     if (!p || p.listAt < cfg.minPrice) continue;
@@ -704,15 +700,16 @@ function buildCandidates(pool, cfg) {
     if (p.crowded) continue;
     if (!m.updated || (now - m.updated) > cfg.staleDays * DAY) continue;
 
-    const y = Math.max(1, r.yield), cost = {};
-    for (const mode of ["buy", "craft"]) {
-      let c = 0;
-      for (const ing of r.ingredients) c += unitCost(ing.id, mode, memo, 0) * ing.qty;
-      cost[mode] = c / y;
-    }
+    // Per-unit material cost at the market price of each ingredient. This is the
+    // figure the allocator ranks by; trueMargin walks the listings for the real
+    // quantity once that is known.
+    const y = Math.max(1, r.yield);
+    let cost = 0;
+    for (const ing of r.ingredients) cost += mkt(ing.id) * ing.qty;
+    cost /= y;
     const revenue = p.listAt * (1 - cfg.tax);
-    const margin = { buy: revenue - cost.buy, craft: revenue - cost.craft };
-    if (margin.buy <= 0 && margin.craft <= 0) continue;
+    const margin = revenue - cost;
+    if (margin <= 0) continue;
 
     const parts = r.ingredients.map(x => ({ ...x, unit: mkt(x.id), avail: availOf(x.id),
       canGather: GATHERABLE.has(x.id), craftable: BY_ITEM.has(x.id),
@@ -721,7 +718,10 @@ function buildCandidates(pool, cfg) {
     // Nothing caps quantity any more. Every world in the region is reachable, so
     // a material is never unobtainable — only dearer, and the ladder handles that.
     rows.push({ ...r, ...p, demand, cost, margin, parts,
-      hasSeal: parts.some(x => x.seal), updated: m.updated,
+      hasSeal: parts.some(x => x.seal),
+      // A part with no market price is in the cost at zero. Say so.
+      unpriced: parts.some(x => !x.unit),
+      updated: m.updated,
       stale: (now - m.updated) > 7 * DAY,
       // A supply count is only as good as the moment it was taken. Both blind
       // spots in the 2026-09-09 bundle were readings 1.25 and 3.5 days old that
@@ -734,12 +734,12 @@ function buildCandidates(pool, cfg) {
   return rows;
 }
 
-function allocate(rows, totalSlots, maxPer, mode, margin) {
+function allocate(rows, totalSlots, maxPer, margin) {
   const plan = rows.map(r => ({ row: r, k: 0 }));
   for (let s = 0; s < totalSlots; s++) {
     let best = null, bestGain = 0;
     for (const p of plan) {
-      const mg = p.row.margin[mode];
+      const mg = p.row.margin;
       if (mg <= 0) continue;
       if (p.k >= Math.min(maxPer, safeUnits(p.row.demand, p.row.supply, margin))) continue;
       const gain = (expectedSales(p.row.demand, p.row.supply, p.k + 1) -
@@ -751,11 +751,11 @@ function allocate(rows, totalSlots, maxPer, mode, margin) {
   }
   return plan.filter(p => p.k > 0)
     .map(p => ({ row: p.row, k: p.k, sales: expectedSales(p.row.demand, p.row.supply, p.k) }))
-    .sort((a, b) => b.sales * b.row.margin[mode] - a.sales * a.row.margin[mode]);
+    .sort((a, b) => b.sales * b.row.margin - a.sales * a.row.margin);
 }
 
-function partition(bundles, n, perPortfolio, mode) {
-  const val = b => b.sales * b.row.margin[mode];
+function partition(bundles, n, perPortfolio) {
+  const val = b => b.sales * b.row.margin;
   const pf = Array.from({ length: n }, () => ({ items: [], slots: 0, value: 0 }));
   for (const b of bundles) {
     const room = pf.filter(p => p.slots + b.k <= perPortfolio);
@@ -768,38 +768,44 @@ function partition(bundles, n, perPortfolio, mode) {
 
 // The per-unit margin assumed the cheapest listing went on forever. Once we know
 // how many of each to make, work out what the materials really cost by walking
-// the listings, and report that instead.
-function trueMargin(row, k, mode) {
-  let cost = 0, short = false, unpriced = false;
-  const memo = new Map();
+// the listings for that quantity, and report that instead. `mats` is the
+// material cost per unit — every gil of it you gather yourself is extra profit.
+function trueMargin(row, k) {
+  let cost = 0, unpriced = false;
+  const short = [];   // materials the world's listings cannot cover for this quantity
   for (const x of row.parts) {
-    // Things you obtain yourself are still valued at the market price — you are
-    // consuming something you could have sold — but you take them from a node or
-    // a coffer, not off a listing ladder that runs out.
-    if (isShard(x.id) || x.canGather || x.selfSource || (mode !== "buy" && x.craftable)) {
-      // A material nobody has sold has no market price, and a missing price used
-      // to be charged as zero gil — which makes the item look free and can push
-      // it to the top of the ranking. Fall back to what it costs to make, and if
-      // even that cannot be worked out, say so rather than pretending it is free.
-      let unit = x.unit;
-      if (!unit) {
-        unit = unitCost(x.id, mode, memo, 0) || 0;
-        if (!unit) unpriced = true;
-      }
-      cost += unit * x.qty * k;
-      continue;
-    }
-    const r = ladderCost(x.id, x.qty * k);
+    // Never sold on this world: costed at zero and tagged. See the cost model note.
+    if (!x.unit) { unpriced = true; continue; }
+    // Marked in MANUAL_NOTES as something you farm rather than buy: charged at
+    // the flat market rate, not walked up a listing ladder you will not touch.
+    if (x.selfSource) { cost += x.unit * x.qty * k; continue; }
+    const need = x.qty * k, r = ladderCost(x.id, need);
     cost += r.cost;
-    if (r.imported) short = true;
+    if (r.imported) short.push({ name: x.name, need, have: need - r.imported,
+                                 craftable: x.craftable, canGather: x.canGather });
   }
   const revenue = row.listAt * (1 - (LAST && LAST.cfg ? LAST.cfg.tax : 0.1));
-  return { each: revenue - cost / Math.max(1, k), short, unpriced };
+  const mats = cost / Math.max(1, k);
+  return { each: revenue - mats, mats, short, unpriced };
 }
 
-// Order and priority-band a bundle for whichever margin is being displayed.
-function bandFor(p, mode) {
-  const val = it => it.sales * trueMargin(it.row, it.k, mode).each;
+// The "short" tag. Most shortfalls are intermediates nobody lists because
+// everybody makes them — Silver Ingot, Iron Rivets — so say which material it
+// is and whether it has a recipe, rather than a blanket "travel to buy".
+function shortTag(short, world) {
+  if (!short.length) return "";
+  const lines = short.map(s => s.name + ": need " + s.need + ", " + s.have + " listed on " + world +
+    ". " + (s.craftable ? "Has a recipe, so craft the rest or buy them on another world."
+          : s.canGather ? "Gatherable, so gather the rest or buy them on another world."
+          : "Buy the rest on another world.") +
+    " The shortfall is costed at " + (s.have ? "the average of what was listed." : "the median of the last 40 sales."));
+  const label = short.slice(0, 2).map(s => s.name).join(", ") + (short.length > 2 ? " +" + (short.length - 2) : "");
+  return '<span class="tag flag" title="' + esc(lines.join("\n")) + '">short: ' + esc(label) + '</span>';
+}
+
+// Order and priority-band a bundle by its real, ladder-walked value.
+function bandFor(p) {
+  const val = it => it.sales * trueMargin(it.row, it.k).each;
   const items = p.items.slice().sort((a, b) => val(b) - val(a));
   const total = items.reduce((a, it) => a + val(it), 0);
   let run = 0;
@@ -842,11 +848,6 @@ const nameOf = id => BY_ITEM.get(id)?.name || (LAST && LAST.names.get(id)) || ("
 // ---------------------------------------------------------------------------
 
 const PRI = { 1: ["Craft first", "p1"], 2: ["Craft next", "p2"], 3: ["If time allows", "p3"] };
-const MODE_LABEL = { buy: "buying the parts from the market",
-                     craft: "crafting or gathering the parts yourself" };
-const MODE_OPTS = m => ["craft","buy"].map(k =>
-  '<option value="' + k + '"' + (k === m ? " selected" : "") + '>' +
-  ({buy:"Buy From Market",craft:"Craft/Gather Yourself"})[k] + '</option>').join("");
 
 const sealTag = x => x.seal ?
   '<span class="tag seal" title="Bought with Grand Company seals: ' + x.seal + '">GC seals</span>' : "";
@@ -908,9 +909,8 @@ function matTable(list, splitGathering) {
 function render() {
   if (!LAST) return;
   const { rows, cfg } = LAST;
-  const planMode = cfg.mode;
-  const bundles = allocate(rows, cfg.portfolios * cfg.slots, cfg.maxPer, planMode, cfg.margin);
-  const pfs = partition(bundles, cfg.portfolios, cfg.slots, planMode);
+  const bundles = allocate(rows, cfg.portfolios * cfg.slots, cfg.maxPer, cfg.margin);
+  const pfs = partition(bundles, cfg.portfolios, cfg.slots);
   const grand = pfs.reduce((a, p) => a + p.value, 0);
   const used = pfs.reduce((a, p) => a + p.slots, 0);
   const allItems = pfs.flatMap(p => p.items);
@@ -919,12 +919,13 @@ function render() {
   const guildRaw = materialsFor(allItems, true);
 
   let html = '<div class="panel"><h2>This week on ' + esc(cfg.world) + '</h2><div class="totals">' +
-    '<div><span>Expected, ' + MODE_LABEL[planMode] + '</span><strong>' + gil(grand) + '</strong></div>' +
+    '<div><span>Expected profit, buying every material</span><strong>' + gil(grand) + '</strong></div>' +
     '<div><span>Bundles</span><strong>' + pfs.length + '</strong></div>' +
     '<div><span>Slots used</span><strong>' + used + '</strong></div>' +
     '</div><div class="hint">Claim a bundle by number in Discord. No two bundles share an item. ' +
     'Values account for the ' + Math.round(cfg.tax * 100) + '% tax, what is already listed, and the fact ' +
-    'that you cannot sell more than you craft.</div></div>';
+    'that you cannot sell more than you craft. Materials are costed as bought; whatever you gather ' +
+    'yourself comes back as extra profit.</div></div>';
 
   const tabs = [["pf","Bundles",pfs.length],["all","All items",rows.length],
     ["cmat","Crafting Materials",""],["rmat","Raw Materials",""],
@@ -935,19 +936,18 @@ function render() {
 
   if (TAB === "pf") {
     pfs.forEach((p, i) => {
-      const dm = PF_MODE[i] || planMode;
-      const { items, total } = bandFor(p, dm);
+      const { items, total } = bandFor(p);
       const jobs = [...new Set(items.map(x => x.row.job))].sort();
       html += '<div class="pf"><header><div><h3>Bundle ' + (i + 1) + '</h3>' +
         '<div class="jobs">' + jobs.join(" &middot; ") + ' &nbsp;—&nbsp; ' + p.slots + ' slots</div></div>' +
-        '<div class="right"><select data-pfmode="' + i + '">' + MODE_OPTS(dm) + '</select>' +
-        '<span class="worth">~' + gil(total) + ' gil</span></div></header>' +
+        '<div class="right"><span class="worth">~' + gil(total) + ' gil</span></div></header>' +
         '<div class="tablewrap"><table><thead><tr><th class="l">Craft</th><th class="l">Priority</th>' +
         '<th class="l">Job</th><th>Lvl</th><th>List at</th><th>Supply</th>' +
-        '<th>Profit each</th><th>Expected</th><th>Made</th></tr></thead><tbody>';
+        '<th title="What the materials for one unit cost to buy, walking the listings for the whole quantity. Every gil of this you gather yourself is extra profit.">Mats each</th>' +
+        '<th title="List price after tax, less the materials.">Profit each</th><th>Expected</th><th>Made</th></tr></thead><tbody>';
       for (const it of items) {
         const r = it.row, [label, cls] = PRI[it.priority];
-        const tm = trueMargin(r, it.k, dm);
+        const tm = trueMargin(r, it.k);
         const made = PROGRESS.crafted[r.itemId] || 0;
         let tags = "";
         if (r.openMarket) tags += '<span class="tag open" title="Nothing genuinely listed against this right now">open market</span>';
@@ -961,14 +961,12 @@ function render() {
           r.mine + ' yours listed</span>';
         if (r.hasSeal) tags += '<span class="tag seal">GC seal mats</span>';
         if (tm.unpriced) tags += '<span class="tag flag" title="' +
-          'One of the materials has never been sold on this world, so there is no price for it and no ' +
-          'recipe to work one out from. The profit shown is higher than the real figure.">material unpriced</span>';
-        if (tm.short) tags += '<span class="tag flag" title="' +
-          'Seraph does not have enough of one material listed. The rest are priced at the same ' +
-          'average, assuming you visit another world to buy them.">travel to buy</span>';
+          'One of the materials has no sale history on this world, so it is costed at zero on the ' +
+          'assumption that it cannot be sold either. If you would have to buy it, the profit shown is too high.">material unpriced</span>';
+        tags += shortTag(tm.short, cfg.world);
         const mats = r.parts.map(x => x.qty + "x " + itemLink(x.name) +
-          (x.canGather ? " (gatherable)" : x.unit ? " @ " + gil(x.unit) : " (no data)") +
-          sealTag(x)).join(" &middot; ");
+          (x.unit ? " @ " + gil(x.unit) : " (never sold, costed at 0)") +
+          (x.canGather ? " (gatherable)" : "") + sealTag(x)).join(" &middot; ");
         html += '<tr' + (made >= it.k ? ' class="done"' : '') + '><td class="l"><span class="qty">' +
           it.k + '&times;</span> ' + itemLink(r.name) + noteTag(r.name) + tags + '<div class="mats">' + mats + '</div></td>' +
           '<td class="l"><span class="pri ' + cls + '">' + label + '</span></td>' +
@@ -980,8 +978,11 @@ function render() {
             ' should be filled after the safety margin.">' + r.supply + (r.clipped ? '+' : '') +
             ' <span style="color:var(--muted)">vs ' + r.demand.toFixed(0) + '/wk &middot; ' +
             (r.sellers || 0) + ' seller' + ((r.sellers || 0) === 1 ? '' : 's') + '</span></td>' +
-          '<td title="At the cheapest listing it would be ' + gil(r.margin[dm]) +
-            ' each. This is what the materials actually cost for the quantity shown.">' +
+          '<td title="At the market price of every material it would be ' + gil(r.cost) +
+            ' each. This is what they actually cost for the quantity shown, cheapest listings first.">' +
+            gil(tm.mats) + '</td>' +
+          '<td title="At the market price of every material it would be ' + gil(r.margin) +
+            ' each. This is the figure after walking the listings for the quantity shown.">' +
             gil(tm.each) + '</td><td>' + gil(it.sales * tm.each) + '</td>' +
           '<td><input class="track" type="number" min="0" max="99" data-craft="' + r.itemId +
           '" data-need="' + it.k + '" value="' + made + '"></td></tr>';
@@ -993,17 +994,18 @@ function render() {
 
   if (TAB === "all") {
     const ranked = rows.slice().sort((a, b) =>
-      (b.margin[planMode] * Math.min(1, b.demand / (b.supply + 1))) -
-      (a.margin[planMode] * Math.min(1, a.demand / (a.supply + 1))));
+      (b.margin * Math.min(1, b.demand / (b.supply + 1))) -
+      (a.margin * Math.min(1, a.demand / (a.supply + 1))));
     html += '<div class="tablewrap"><table><thead><tr><th class="l">Item</th><th class="l">Job</th>' +
       '<th>Lvl</th><th>Sells for</th><th>Sales/wk</th><th>Units listed</th>' +
-      '<th title="Profit per unit buying the intermediate parts from the market">Buy From Market</th>' +
-      '<th title="Profit per unit crafting or gathering the intermediate parts yourself where that is cheaper">Craft/Gather Yourself</th>' +
+      '<th title="Material cost per unit at the market price of each ingredient">Mats each</th>' +
+      '<th title="List price after tax, less the materials">Profit each</th>' +
       '</tr></thead><tbody>';
     for (const r of ranked.slice(0, 300))
       html += '<tr><td class="l">' + itemLink(r.name) + noteTag(r.name) +
         (r.openMarket ? '<span class="tag open">open</span>' : '') +
-        (r.hasSeal ? '<span class="tag seal">GC</span>' : '') + '</td>' +
+        (r.hasSeal ? '<span class="tag seal">GC</span>' : '') +
+        (r.unpriced ? '<span class="tag flag" title="A material has no sale history here and is costed at zero">unpriced mat</span>' : '') + '</td>' +
         '<td class="l">' + esc(r.job) + '</td><td>' + r.level + '</td><td>' + gil(r.listAt) + '</td>' +
         '<td>' + r.demand.toFixed(1) + '</td>' +
         '<td title="' + r.realListings + ' listings holding ' + r.supply + ' units">' +
@@ -1011,7 +1013,7 @@ function render() {
         (r.junk ? ' <span style="color:var(--muted)" title="' + r.junk +
           ' listing(s) priced more than 2x what this item actually sells for. Treated as decoration, not competition.">(+' +
           r.junk + ' overpriced)</span>' : '') + '</td>' +
-        '<td>' + gil(r.margin.buy) + '</td><td>' + gil(r.margin.craft) + '</td></tr>';
+        '<td>' + gil(r.cost) + '</td><td>' + gil(r.margin) + '</td></tr>';
     html += '</tbody></table></div>';
   }
 
@@ -1028,9 +1030,9 @@ function render() {
   }
 
   if (TAB === "all") {
-    html += '<div class="hint">The last two columns are profit per unit, buying the intermediate ' +
-            'parts versus making them yourself. Materials are valued at market price either way — ' +
-            'gathering saves you the gil, not the cost. Supply is units currently listed against you.</div>';
+    html += '<div class="hint">Mats each is what one unit\'s ingredients cost at market price; ' +
+            'Profit each is what is left after tax and materials. Gather any of the materials yourself ' +
+            'and that much of Mats each comes back as profit. Units listed is the competition on the board now.</div>';
   }
 
   if (TAB === "gcmat") {
@@ -1046,8 +1048,6 @@ function render() {
   $("out").innerHTML = html;
 
   $("out").querySelectorAll(".tabs button").forEach(b => b.onclick = () => { TAB = b.dataset.tab; render(); });
-  $("out").querySelectorAll("select[data-pfmode]").forEach(s =>
-    s.onchange = () => { PF_MODE[s.dataset.pfmode] = s.value; render(); });
   const track = (sel, store) => $("out").querySelectorAll(sel).forEach(i => {
     i.oninput = () => {
       PROGRESS[store][i.dataset.craft || i.dataset.gather] = +i.value || 0;
@@ -1070,7 +1070,10 @@ function render() {
 // is deterministic given the same inputs.
 // ---------------------------------------------------------------------------
 
-const FORMAT = 2;
+// Format 3 (v09.13.26.1) carries one profit figure per row. Format 2 carried
+// one per mode; its "buy" figure was computed the same way, so old files are
+// converted losslessly on load.
+const FORMAT = 3;
 
 function collectIds(rows) {
   const ids = new Set();
@@ -1100,7 +1103,7 @@ function buildSession() {
     cfg: LAST.cfg,
     categories: [...document.querySelectorAll("#cats input:checked")].map(i => i.value),
     rows: LAST.rows, names, recipes, gatherable, seals, vendor, prices, ladders,
-    progress: PROGRESS, pfMode: PF_MODE, tab: TAB };
+    progress: PROGRESS, tab: TAB };
 }
 
 function applySession(d) {
@@ -1112,8 +1115,13 @@ function applySession(d) {
   LADDER = new Map(Object.entries(d.ladders || {}).map(([k, v]) => [+k, v]));
   const names = new Map(Object.entries(d.names || {}).map(([k, v]) => [+k, v]));
   PROGRESS = { crafted: d.progress?.crafted || {}, gathered: d.progress?.gathered || {} };
-  PF_MODE = d.pfMode || {};
   TAB = d.tab || "pf";
+
+  // Format 2 rows: { cost: {buy, craft}, margin: {buy, craft} }. Keep "buy".
+  for (const r of (d.rows || [])) {
+    if (r.margin && typeof r.margin === "object") { r.margin = r.margin.buy; r.cost = r.cost.buy; }
+    if (r.unpriced == null) r.unpriced = (r.parts || []).some(x => !x.unit);
+  }
 
   const c = d.cfg || {};
   if (c.world) $("world").value = c.world;
@@ -1126,7 +1134,6 @@ function applySession(d) {
   if (c.minPrice != null) $("minprice").value = c.minPrice;
   if (c.minSales != null) $("minsales").value = c.minSales;
   if (c.margin != null) $("margin").value = Math.round(c.margin * 100);
-  if (c.mode) $("mode").value = c.mode;
 
   // Show the categories this scan used, so the page reads consistently.
   const cats = d.categories || [];
@@ -1270,7 +1277,7 @@ $("btnScan").onclick = async () => {
       portfolios: +$("pf").value || 5, slots: +$("slots").value || 20,
       maxPer: +$("maxper").value || 10, tax: (+$("tax").value || 10) / 100,
       staleDays: +$("stale").value || 180, minPrice: +$("minprice").value || 0,
-      minSales: +$("minsales").value || 0, mode: $("mode").value,
+      minSales: +$("minsales").value || 0,
       margin: (+$("margin").value >= 0 ? +$("margin").value : 20) / 100,
       mine: $("mine").value.trim() };
 
@@ -1295,8 +1302,8 @@ $("btnScan").onclick = async () => {
     for (const r of pool) { names.set(r.itemId, r.name); addTree(r.itemId, 0); }
 
     // Materials flagged selfSource are ones you go and get yourself, so from here
-    // they behave like anything else you gather: no supply limit, and free in the
-    // gathering modes. Done after the tree is complete so nothing is missed.
+    // they behave like anything else you gather: no listing ladder, charged at the
+    // flat market rate. Done after the tree is complete so nothing is missed.
     let mine = 0;
     for (const [name, n] of Object.entries(MANUAL_NOTES)) {
       if (!(n && typeof n === "object" && n.selfSource)) continue;
@@ -1312,11 +1319,14 @@ $("btnScan").onclick = async () => {
     PRICE = new Map(); LADDER = new Map();
     for (const [id, m] of MARKET) {
       const p = priceOf(m);
+      // An item with no sale history has no price and, by the same rule, no
+      // ladder: it is costed at zero everywhere, so the ranking and the bundle
+      // view cannot disagree about it.
+      if (!p) continue;
       // PRICE is what a material costs you, so it is the buying price.
-      if (p) PRICE.set(id, p.buyAt);
-      const med = p ? p.median : 0;
+      PRICE.set(id, p.buyAt);
       // Only listings within reach of the real sale price count as buyable.
-      const real = (m.listings || []).filter(l => !med || l.price <= med * ABSURD)
+      const real = (m.listings || []).filter(l => l.price <= p.median * ABSURD)
                      .sort((a, b) => a.price - b.price).slice(0, 30);
       if (real.length) LADDER.set(id, real);
     }
@@ -1340,7 +1350,6 @@ $("btnScan").onclick = async () => {
                 "or allow older data.", true);
       $("out").innerHTML = ""; return;
     }
-    PF_MODE = {};
     LAST = { rows, cfg, names };
     render();
     // Two different populations get counted here and saying so matters: `pool` is
@@ -1353,10 +1362,15 @@ $("btnScan").onclick = async () => {
     if (MY_RETAINERS.size) msg += "  Listings from " + [...MY_RETAINERS].length +
       " of your own retainers are excluded from competition.";
     if (res.missed) msg += "  " + res.missed + " of the " + res.total +
-      " items priced (recipes plus all their materials) did not load, after " +
+      " items priced (recipes plus all their materials) did not load: " +
       res.batchesFailed + " request" + (res.batchesFailed > 1 ? "s" : "") +
-      " failed on retry. Anything affected was left out rather than guessed at, so the " +
-      "list is short rather than wrong. Scan again to fill it in.";
+      " failed even on a second attempt. Any recipe among them was left out; any material " +
+      "among them is costed at zero and its crafts are tagged. Scan again to fill them in.";
+    else if (res.retried) msg += "  " + res.retried + " request" + (res.retried > 1 ? "s" : "") +
+      " failed the first time and succeeded on the second attempt.";
+    if (res.unknown) msg += "  " + res.unknown + " item" + (res.unknown > 1 ? "s have" : " has") +
+      " no market board record at all (untradeable, or never viewed by anyone running the " +
+      "Universalis uploader), so " + (res.unknown > 1 ? "they are" : "it is") + " costed at zero.";
     // A partial scan is still a usable scan. Only colour it as a failure when
     // nothing usable came back at all.
     setStatus(msg, false);
@@ -1369,8 +1383,6 @@ $("btnScan").onclick = async () => {
       : "Market scan failed: " + err.message, true);
   } finally { $("btnScan").disabled = false; }
 };
-
-$("mode").onchange = () => { if (LAST) { LAST.cfg.mode = $("mode").value; PF_MODE = {}; render(); } };
 </script>
 </body>
 </html>
