@@ -28,7 +28,11 @@ const XIV = "https://v2.xivapi.com/api";
 const UNI = "https://universalis.app/api/v2";
 
 // Housing and furnishing categories, matched loosely against the game's own names.
-const HOUSING = /furnish|table|chair|bed|rug|wall|floor|garden|outdoor|exterior|fence|roof|window|door|partition|stage|placard|orchestrion/i;
+// Must stay identical to the Furnishings group in index.html, or the tracker
+// watches a different set of items from the one the planner recommends. Until
+// 2026-09-13 this copy lacked `ceiling|lamp|light` and never recorded the ten
+// Ceiling Light recipes.
+const HOUSING = /furnish|table|chair|bed|rug|wall|floor|garden|outdoor|exterior|fence|roof|window|door|partition|stage|placard|orchestrion|ceiling|lamp|light/i;
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const chunk = (a, n) => { const o = []; for (let i = 0; i < a.length; i += n) o.push(a.slice(i, i + n)); return o; };

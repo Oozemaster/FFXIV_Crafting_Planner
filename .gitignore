@@ -1,0 +1,8 @@
+# Playwright and its Chromium build, pulled in by `npm install` for verify.js.
+node_modules/
+
+# Screenshot written by verify.js on every run.
+verify.png
+
+# Session files saved from the page while testing.
+ffxiv-session-*.json
