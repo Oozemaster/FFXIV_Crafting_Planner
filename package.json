@@ -1,0 +1,12 @@
+{
+  "name": "ffxiv-crafting-planner",
+  "private": true,
+  "description": "Playwright is only for verify.js. index.html and tracker.js have no dependencies.",
+  "scripts": {
+    "verify": "node verify.js",
+    "track": "node tracker.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  }
+}
