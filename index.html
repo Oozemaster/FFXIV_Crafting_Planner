@@ -108,7 +108,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.07.26.2</span></p>
+    <span class="stamp">v09.12.26.1</span></p>
 </header>
 
 <div class="panel">
@@ -129,6 +129,8 @@
         <option value="craft" selected>Craft/Gather Yourself</option>
         <option value="buy">Buy From Market</option>
       </select></div>
+    <div class="wide"><label class="field" for="mine">Your own retainers (ignored as competition)</label>
+      <input type="text" id="mine" placeholder="Spicy-soy, Momo-mochi" value="Spicy-soy, Momo-mochi"></div>
   </div>
   <div class="row">
     <button id="btnLoad">1 &nbsp;Load recipes</button>
@@ -212,6 +214,7 @@ const MANUAL_NOTES = {
   "Belah'dian Glass":     { tag: "Dungeon",  note: "Treasure coffer drop from a dungeon" },
   "Fine Wax":             { tag: "Dungeon",  note: "Treasure coffer drop from a dungeon" },
   "Tallow Candle":        { tag: "Buy Only", note: "Vendor or market board only — cannot be gathered" },
+  "Potting Soil":         { tag: "Buy Only", note: "Vendor or market board only — cannot be gathered" },
 
   // Add your own below. Either form works:
   //   "Item Name": "a plain note",
@@ -224,8 +227,28 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":
 const DAY = 86400000;
 const setStatus = (m, e) => { const s = $("status"); s.textContent = m; s.className = e ? "status err" : "status"; };
 
+// Your own retainers, from the setup box. Names are compared case-insensitively
+// and with surrounding spaces trimmed, because the game shows them capitalised
+// and people type them either way.
+let MY_RETAINERS = new Set();
+const isMine = name => MY_RETAINERS.size > 0 && MY_RETAINERS.has(String(name || "").trim().toLowerCase());
+function setMyRetainers(text) {
+  MY_RETAINERS = new Set(String(text || "").split(/[,;]/)
+    .map(s => s.trim().toLowerCase()).filter(Boolean));
+  return MY_RETAINERS.size;
+}
+
 // Two honest states: a real fraction when we know the total amount of work,
 // and a moving stripe when we do not. Never a made-up percentage.
+// "3 hours", "2 days" — for telling someone how old a reading is without making
+// them do arithmetic on a timestamp.
+function ageOf(ms) {
+  const h = ms / 3600000;
+  if (h < 1) return Math.max(1, Math.round(h * 60)) + " min";
+  if (h < 48) return Math.round(h) + (Math.round(h) === 1 ? " hour" : " hours");
+  return Math.round(h / 24) + " days";
+}
+
 function setBar(f) {
   const wrap = $("barwrap"), fill = $("bar");
   if (f === null) { wrap.classList.add("wait"); fill.style.width = ""; return; }
@@ -474,9 +497,13 @@ async function loadMarket(world, ids, onProgress) {
         out.set(id, {
           history: (it.recentHistory || []).filter(h => !h.hq && h.pricePerUnit > 0)
           .map(h => ({ p: h.pricePerUnit, q: h.quantity || 1, t: h.timestamp || 0 })),
-          listings: (it.listings || []).filter(l => !l.hq)
+          // Your own retainers are not competition and you cannot buy from
+          // yourself, so they are dropped here, before anything counts supply,
+          // sellers, the cheapest price or the material ladder.
+          listings: (it.listings || []).filter(l => !l.hq && !isMine(l.retainerName))
           .map(l => ({ price: l.pricePerUnit, qty: l.quantity || 1,
                        who: l.retainerName || "", id: l.listingID || "" })),
+          mine: (it.listings || []).filter(l => !l.hq && isMine(l.retainerName)).length,
           clipped: (it.listings || []).length >= 30,
           updated: it.lastUploadTime || 0 });
       }
@@ -492,9 +519,21 @@ async function loadMarket(world, ids, onProgress) {
 }
 
 const ABSURD = 2.0;   // listings above this multiple of the real sale price are not competition
+
+// How many sales the market price is taken from. The request asks Universalis for
+// up to 200 so that weekly demand has a long history to work with, but 200 sales
+// on a slow furnishing can reach back two years, and a median over that is a
+// historical average rather than a current price. Measured on 2026-09-09: the
+// Masonwork Interior Wall's 200 sales spanned 101 days and gave 59,800, while its
+// last 40 gave 76,799 and its last 10 gave 76,899. Forty tracks the recent figure
+// closely on eleven of thirteen items tested and is steadier than ten.
+const PRICE_SALES = 40;
+
 function priceOf(m) {
   if (!m) return null;
-  const med = median((m.history || []).map(h => h.p));
+  // Newest first, then the most recent PRICE_SALES of them.
+  const recent = (m.history || []).slice().sort((a, b) => b.t - a.t).slice(0, PRICE_SALES);
+  const med = median(recent.map(h => h.p));
   if (!med) return null;
   const raw = m.listings || [];
   const real = raw.filter(l => l.price <= med * ABSURD);
@@ -507,7 +546,13 @@ function priceOf(m) {
   // Forty listings from five retainers is a very different market from forty
   // listings from forty people. Count the people.
   const sellers = new Set(real.map(l => l.who).filter(Boolean)).size;
-  return { median: med, listAt: lowest ? Math.min(lowest, med) : med, supply, sellers,
+  // Never match the cheapest listing. The board sells cheapest first and a tie
+  // loses it, so go one gil under — or lower still if the sale price says so.
+  const listAt = lowest ? Math.max(1, Math.min(lowest - 1, med)) : med;
+  // What the same item costs to BUY, which is not the same question: you pay the
+  // asking price, you do not get the extra gil off for undercutting yourself.
+  const buyAt = lowest ? Math.min(lowest, med) : med;
+  return { median: med, listAt, buyAt, supply, sellers, priceFrom: recent.length,
            realListings: real.length, openMarket: real.length === 0,
            crowded, clipped: !!m.clipped,
            junk: (m.listings || []).length - real.length };
@@ -676,7 +721,15 @@ function buildCandidates(pool, cfg) {
     // Nothing caps quantity any more. Every world in the region is reachable, so
     // a material is never unobtainable — only dearer, and the ladder handles that.
     rows.push({ ...r, ...p, demand, cost, margin, parts,
-      hasSeal: parts.some(x => x.seal), updated: m.updated, stale: (now - m.updated) > 7 * DAY });
+      hasSeal: parts.some(x => x.seal), updated: m.updated,
+      stale: (now - m.updated) > 7 * DAY,
+      // A supply count is only as good as the moment it was taken. Both blind
+      // spots in the 2026-09-09 bundle were readings 1.25 and 3.5 days old that
+      // said "nothing listed" when the board had filled up since. A week is far
+      // too loose for a competition count, so anything over a day is called out.
+      supplyAge: now - m.updated,
+      oldSupply: (now - m.updated) > DAY,
+      mine: m.mine || 0 });
   }
   return rows;
 }
@@ -717,13 +770,23 @@ function partition(bundles, n, perPortfolio, mode) {
 // how many of each to make, work out what the materials really cost by walking
 // the listings, and report that instead.
 function trueMargin(row, k, mode) {
-  let cost = 0, short = false;
+  let cost = 0, short = false, unpriced = false;
+  const memo = new Map();
   for (const x of row.parts) {
     // Things you obtain yourself are still valued at the market price — you are
     // consuming something you could have sold — but you take them from a node or
     // a coffer, not off a listing ladder that runs out.
     if (isShard(x.id) || x.canGather || x.selfSource || (mode !== "buy" && x.craftable)) {
-      cost += x.unit * x.qty * k;
+      // A material nobody has sold has no market price, and a missing price used
+      // to be charged as zero gil — which makes the item look free and can push
+      // it to the top of the ranking. Fall back to what it costs to make, and if
+      // even that cannot be worked out, say so rather than pretending it is free.
+      let unit = x.unit;
+      if (!unit) {
+        unit = unitCost(x.id, mode, memo, 0) || 0;
+        if (!unit) unpriced = true;
+      }
+      cost += unit * x.qty * k;
       continue;
     }
     const r = ladderCost(x.id, x.qty * k);
@@ -731,7 +794,7 @@ function trueMargin(row, k, mode) {
     if (r.imported) short = true;
   }
   const revenue = row.listAt * (1 - (LAST && LAST.cfg ? LAST.cfg.tax : 0.1));
-  return { each: revenue - cost / Math.max(1, k), short };
+  return { each: revenue - cost / Math.max(1, k), short, unpriced };
 }
 
 // Order and priority-band a bundle for whichever margin is being displayed.
@@ -889,7 +952,17 @@ function render() {
         let tags = "";
         if (r.openMarket) tags += '<span class="tag open" title="Nothing genuinely listed against this right now">open market</span>';
         if (r.stale) tags += '<span class="tag stale" title="No data uploaded for over a week">stale</span>';
+        else if (r.oldSupply) tags += '<span class="tag stale" title="' +
+          'The last time anybody looked at this item on the market board was ' + ageOf(r.supplyAge) +
+          ' ago, so the supply figure is that old. Listings may have appeared since. ' +
+          'Check the board before trusting the quantity.">supply ' + ageOf(r.supplyAge) + ' old</span>';
+        if (r.mine) tags += '<span class="tag seal" title="' + r.mine +
+          ' of the listings on this item are your own retainers, and are not counted as competition.">' +
+          r.mine + ' yours listed</span>';
         if (r.hasSeal) tags += '<span class="tag seal">GC seal mats</span>';
+        if (tm.unpriced) tags += '<span class="tag flag" title="' +
+          'One of the materials has never been sold on this world, so there is no price for it and no ' +
+          'recipe to work one out from. The profit shown is higher than the real figure.">material unpriced</span>';
         if (tm.short) tags += '<span class="tag flag" title="' +
           'Seraph does not have enough of one material listed. The rest are priced at the same ' +
           'average, assuming you visit another world to buy them.">travel to buy</span>';
@@ -1049,6 +1122,7 @@ function applySession(d) {
   if (c.maxPer) $("maxper").value = c.maxPer;
   if (c.tax != null) $("tax").value = Math.round(c.tax * 100);
   if (c.staleDays) $("stale").value = c.staleDays;
+  if (c.mine != null) { $("mine").value = c.mine; setMyRetainers(c.mine); }
   if (c.minPrice != null) $("minprice").value = c.minPrice;
   if (c.minSales != null) $("minsales").value = c.minSales;
   if (c.margin != null) $("margin").value = Math.round(c.margin * 100);
@@ -1197,7 +1271,12 @@ $("btnScan").onclick = async () => {
       maxPer: +$("maxper").value || 10, tax: (+$("tax").value || 10) / 100,
       staleDays: +$("stale").value || 180, minPrice: +$("minprice").value || 0,
       minSales: +$("minsales").value || 0, mode: $("mode").value,
-      margin: (+$("margin").value >= 0 ? +$("margin").value : 20) / 100 };
+      margin: (+$("margin").value >= 0 ? +$("margin").value : 20) / 100,
+      mine: $("mine").value.trim() };
+
+    // Must happen before anything is fetched: loadMarket drops these listings as
+    // it reads them, so the set has to be in place first.
+    setMyRetainers(cfg.mine);
 
     const ids = new Set(), names = new Map();
     const addTree = (id, depth) => {
@@ -1233,7 +1312,8 @@ $("btnScan").onclick = async () => {
     PRICE = new Map(); LADDER = new Map();
     for (const [id, m] of MARKET) {
       const p = priceOf(m);
-      if (p) PRICE.set(id, p.listAt);
+      // PRICE is what a material costs you, so it is the buying price.
+      if (p) PRICE.set(id, p.buyAt);
       const med = p ? p.median : 0;
       // Only listings within reach of the real sale price count as buyable.
       const real = (m.listings || []).filter(l => !med || l.price <= med * ABSURD)
@@ -1263,14 +1343,23 @@ $("btnScan").onclick = async () => {
     PF_MODE = {};
     LAST = { rows, cfg, names };
     render();
-    let msg = rows.length + " items passed the filters out of " + pool.length + " considered.";
+    // Two different populations get counted here and saying so matters: `pool` is
+    // the recipes in the ticked categories, `res.total` is those plus every
+    // material in their trees, all of which need a price.
+    let msg = rows.length + " of " + pool.length + " recipes passed the filters.";
     if (mine) msg += "  " + mine + " material" + (mine > 1 ? "s" : "") +
       " marked as self-supplied, so no market limit applies to " +
       (mine > 1 ? "them" : "it") + ".";
-    if (res.missed) msg += "  Note: " + res.missed + " of " + res.total + " items could not be " +
-      "priced (" + res.batchesFailed + " request" + (res.batchesFailed > 1 ? "s" : "") +
-      " failed after retrying). Scan again for a complete picture.";
-    setStatus(msg, !!res.missed);
+    if (MY_RETAINERS.size) msg += "  Listings from " + [...MY_RETAINERS].length +
+      " of your own retainers are excluded from competition.";
+    if (res.missed) msg += "  " + res.missed + " of the " + res.total +
+      " items priced (recipes plus all their materials) did not load, after " +
+      res.batchesFailed + " request" + (res.batchesFailed > 1 ? "s" : "") +
+      " failed on retry. Anything affected was left out rather than guessed at, so the " +
+      "list is short rather than wrong. Scan again to fill it in.";
+    // A partial scan is still a usable scan. Only colour it as a failure when
+    // nothing usable came back at all.
+    setStatus(msg, false);
     setBar(1);
   } catch (err) {
     const net = /failed to fetch|networkerror|load failed/i.test(err.message);
