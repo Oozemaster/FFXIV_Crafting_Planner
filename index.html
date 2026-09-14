@@ -36,6 +36,8 @@
   label.field { display:block; font-size:12px; color:var(--muted); margin-bottom:5px; }
   input,select { width:100%; padding:8px 10px; font:inherit; font-size:14px; background:var(--bg);
     color:var(--ink); border:1px solid var(--line); border-radius:6px; }
+  label.check { display:flex; align-items:center; gap:8px; font-size:14px; padding:8px 0; cursor:pointer; }
+  label.check input { width:auto; margin:0; }
   button { font:inherit; font-weight:600; cursor:pointer; padding:10px 18px; border-radius:6px;
     border:1px solid var(--accent); background:var(--accent); color:var(--panel); }
   button.secondary { background:transparent; color:var(--accent); }
@@ -107,7 +109,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.13.26.2</span></p>
+    <span class="stamp">v09.13.26.3</span></p>
 </header>
 
 <div class="panel">
@@ -123,6 +125,8 @@
     <div><label class="field" for="minprice">Min sale price (gil)</label><input type="number" id="minprice" value="5000" min="0" step="1000"></div>
     <div><label class="field" for="minsales">Min sales per week</label><input type="number" id="minsales" value="1" min="0" step="0.5"></div>
     <div><label class="field" for="margin">Safety margin %</label><input type="number" id="margin" value="20" min="0" max="90" step="5"></div>
+    <div><label class="field" for="hqonly">Quality</label>
+      <label class="check" title="Sell as high quality. For any craft that can be HQ, its price, demand and supply come from HQ sales and HQ listings alone. Materials are unaffected: you buy whichever quality is cheapest. Crafts with no HQ version behave as normal."><input type="checkbox" id="hqonly"> HQ only</label></div>
     <div class="wide"><label class="field" for="mine">Your own retainers (counted as listed, never undercut)</label>
       <input type="text" id="mine" placeholder="Spicy-soy, Momo-mochi" value="Spicy-soy, Momo-mochi"></div>
   </div>
@@ -152,8 +156,13 @@
   <div class="hint" style="font-size:13.5px;line-height:1.6">
     <p><strong>Prices come from what actually sold</strong>, not what people are asking. Listings far
     above the real sale price are ignored and not counted as competition.</p>
-    <p><strong>You cannot sell more than you made.</strong> Expected sales are capped at the number of
-    units in your bundle.</p>
+    <p><strong>Expected is the whole quantity at the profit shown.</strong> The quantity is already
+    held below the gap between weekly demand and what is listed, by the safety margin, so the tool
+    assumes what it recommends will sell. Whether it does in a week is what the results log is for.</p>
+    <p><strong>HQ only means sell as HQ.</strong> Any craft the game allows a high-quality version of is
+    priced, its demand measured and its competition counted on HQ sales and HQ listings alone. Materials
+    are not affected: you buy whichever quality is cheapest and your crafting makes the result HQ. Crafts
+    with no HQ version, which is every furnishing, behave as normal.</p>
     <p><strong>An item with no sale history is dropped</strong> however lucrative it looks.
     <strong>A material with no sale history is costed at zero</strong>, on the assumption that what
     nobody has bought cannot be sold either. The craft is tagged so you can check before trusting it.</p>
@@ -326,12 +335,14 @@ const chunk = (a, n) => { const o = []; for (let i = 0; i < a.length; i += n) o.
 
 let RECIPES = [], BY_ITEM = new Map();
 let GATHERABLE = new Set(), SEALS = new Map(), MARKET = new Map();
+let HQMARKET = new Map();  // item id -> the same shape, HQ sales and listings only; crafts sold as HQ
 let VENDOR = new Map();   // item id -> gil shop price, for the cheap-to-buy rule
 let PRICE  = new Map();   // item id -> market price; kept separate so a saved
                           // session can be restored without touching the network
 let LADDER = new Map();   // item id -> [{price, qty}] ascending. The cheapest listing
                           // is not an unlimited supply at that price, and for thin
                           // materials there may not be enough on the board at all.
+let CAN_HQ = new Set();   // item ids the game allows a high-quality version of
 let LAST = null, TAB = "pf";
 let PROGRESS = { crafted: {}, gathered: {} };
 
@@ -339,8 +350,9 @@ let PROGRESS = { crafted: {}, gathered: {} };
 // XIVAPI
 // ---------------------------------------------------------------------------
 
-const RECIPE_FIELDS = ["ItemResult.Name","ItemResult.IsUntradable","ItemResult.ItemUICategory.Name",
-  "AmountResult","AmountIngredient","Ingredient[].Name","RecipeLevelTable","CraftType.Name"].join(",");
+const RECIPE_FIELDS = ["ItemResult.Name","ItemResult.IsUntradable","ItemResult.CanBeHq",
+  "ItemResult.ItemUICategory.Name","AmountResult","AmountIngredient","Ingredient[].Name",
+  "RecipeLevelTable","CraftType.Name"].join(",");
 
 async function loadRecipes(maxLevel) {
   const base = "https://v2.xivapi.com/api/search";
@@ -368,6 +380,9 @@ async function loadRecipes(maxLevel) {
 function parseRecipe(r) {
   const f = r.fields || {}, itemId = linkId(f.ItemResult), name = linkName(f.ItemResult);
   if (!itemId || !name) return null;
+  // Whether the game allows a high-quality version. Noted as items go past, so
+  // HQ only knows which crafts to ask Universalis about as HQ.
+  if (f.ItemResult?.fields?.CanBeHq) CAN_HQ.add(itemId);
   const ing = [], names = f.Ingredient || [], amts = f.AmountIngredient || [];
   for (let i = 0; i < names.length; i++) {
     const id = linkId(names[i]), qty = amts[i] || 0;
@@ -479,31 +494,41 @@ async function loadSeals() {
 // Universalis
 // ---------------------------------------------------------------------------
 
-async function loadMarket(world, ids, onProgress) {
+// Every id is fetched plainly: both qualities, flagged. That record serves a
+// material (any quality, see the cost model) and a craft sold as normal
+// quality. `hqIds` — the crafts to sell as high quality — are fetched a second
+// time under Universalis' hq=true filter and kept in a separate map, so the
+// craft is priced, counted and demanded on HQ alone while the same item as a
+// material is untouched. Server-side filtering matters: the 20 cheapest of a
+// mixed list could be all NQ.
+async function loadMarket(world, ids, onProgress, hqIds) {
   const unique = [...new Set(ids)].filter(n => n > 1);
-  const out = new Map(), w = encodeURIComponent(world);
+  const out = new Map(), outHq = new Map(), w = encodeURIComponent(world);
   let done = 0;
   // Fewer items per request, because each now carries up to 100 listings.
-  const batches = chunk(unique, 25);
+  const batches = [
+    ...chunk(unique, 25).map(b => ({ ids: b, hq: false })),
+    ...chunk([...hqIds].filter(id => id > 1), 25).map(b => ({ ids: b, hq: true }))
+  ];
+  const total = batches.reduce((a, b) => a + b.ids.length, 0);
 
-  const fetchBatch = async batch => {
+  const fetchBatch = async ({ ids: batch, hq }) => {
     // Universalis answers a one-item request in a different shape, so pad it.
     if (batch.length === 1) batch.push(batch[0] === 5057 ? 5058 : 5057);
     const det = await getJSON("https://universalis.app/api/v2/" + w + "/" + batch.join(",") +
-                              "?listings=" + LISTINGS + "&entries=200");
+                              "?listings=" + LISTINGS + "&entries=200" + (hq ? "&hq=true" : ""));
     const items = det.items || {};
     for (const k of Object.keys(items)) {
       const it = items[k], id = Number(k);
-      out.set(id, {
-        // Every sale, high quality included, so demand counts all of them. The
-        // price median filters to normal quality itself.
+      (hq ? outHq : out).set(id, {
+        hq,
         history: (it.recentHistory || []).filter(h => h.pricePerUnit > 0)
         .map(h => ({ p: h.pricePerUnit, q: h.quantity || 1, t: h.timestamp || 0, hq: !!h.hq })),
         // Your own retainers stay in the list, flagged. They count as supply —
         // ten already listed means ten fewer to make — but are never undercut
         // and cannot be bought from. priceOf and the ladder read the flag.
-        listings: (it.listings || []).filter(l => !l.hq)
-        .map(l => ({ price: l.pricePerUnit, qty: l.quantity || 1,
+        listings: (it.listings || [])
+        .map(l => ({ price: l.pricePerUnit, qty: l.quantity || 1, hq: !!l.hq,
                      who: l.retainerName || "", id: l.listingID || "",
                      mine: isMine(l.retainerName) })),
         clipped: (it.listings || []).length >= LISTINGS,
@@ -515,8 +540,8 @@ async function loadMarket(world, ids, onProgress) {
   for (const batch of batches) {
     // A batch that will not load costs us those items, not the whole scan.
     try { await fetchBatch(batch); } catch (e) { failed.push(batch); }
-    done += batch.length;
-    onProgress(Math.min(done, unique.length), unique.length);
+    done += batch.ids.length;
+    onProgress(Math.min(done, total), total);
     await sleep(120);            // stay well under the rate limit
   }
 
@@ -530,7 +555,7 @@ async function loadMarket(world, ids, onProgress) {
   if (failed.length) {
     await sleep(3000);
     for (const batch of failed) {
-      try { await fetchBatch(batch); } catch (e) { batchesFailed++; for (const id of batch) lost.add(id); }
+      try { await fetchBatch(batch); } catch (e) { batchesFailed++; for (const id of batch.ids) lost.add(id); }
       await sleep(250);
     }
   }
@@ -539,7 +564,7 @@ async function loadMarket(world, ids, onProgress) {
   // them at all (untradeable, or never viewed by anyone running the uploader).
   const missed = unique.filter(id => lost.has(id)).length;
   const unknown = unique.filter(id => !out.has(id) && !lost.has(id)).length;
-  return { market: out, missed, unknown, batchesFailed, retried: failed.length, total: unique.length };
+  return { market: out, hqMarket: outHq, missed, unknown, batchesFailed, retried: failed.length, total: unique.length };
 }
 
 const ABSURD = 2.0;   // listings above this multiple of the real sale price are not competition
@@ -559,13 +584,20 @@ const LISTINGS = 20;
 // closely on eleven of thirteen items tested and is steadier than ten.
 const PRICE_SALES = 40;
 
-function priceOf(m) {
+// Which sales and listings belong to the market being priced. Shaun, 2026-09-13:
+//   "hq"  — a craft sold as high quality: HQ sales and HQ listings only.
+//   "nq"  — a craft sold as normal quality: NQ only.
+//   "any" — a material: both. You buy whatever is cheapest and your own
+//           crafting turns it into HQ, so the distinction does not apply.
+const ofQuality = (quality, x) => quality === "any" || !!x.hq === (quality === "hq");
+
+function priceOf(m, quality) {
   if (!m) return null;
-  // Normal quality only, newest first, then the most recent PRICE_SALES of them.
-  const recent = (m.history || []).filter(h => !h.hq).sort((a, b) => b.t - a.t).slice(0, PRICE_SALES);
+  // Newest first, then the most recent PRICE_SALES of them.
+  const recent = (m.history || []).filter(h => ofQuality(quality, h)).sort((a, b) => b.t - a.t).slice(0, PRICE_SALES);
   const med = median(recent.map(h => h.p));
   if (!med) return null;
-  const raw = m.listings || [];
+  const raw = (m.listings || []).filter(l => ofQuality(quality, l));
   // Current Listings: everything genuinely on the board, your own included. Ten
   // of yours already listed means ten fewer to make — whatever you priced them
   // at, since repricing is your call. A rival's listing above the junk cutoff
@@ -588,9 +620,9 @@ function priceOf(m) {
   const listAt = lowest ? Math.max(1, Math.min(lowest - 1, med)) : med;
   return { median: med, listAt, supply, mine, sellers, priceFrom: recent.length,
            realListings: real.length, openMarket: rivals.length === 0,
-           crowded, clipped: !!m.clipped, junk: raw.length - real.length };
+           crowded, clipped: !!m.clipped, junk: raw.length - real.length, hq: quality === "hq" };
 }
-// An item's market price: the median of its last 40 normal-quality sales.
+// A material's market price: the median of its last 40 sales of either quality.
 const mkt = id => PRICE.get(id) || 0;
 const availOf = id => (LADDER.get(id) || []).reduce((a, l) => a + l.qty, 0);
 
@@ -622,6 +654,10 @@ function ladderCost(id, units) {
 // thing is to obtain, whichever way you obtain it. Anything you gather or farm
 // instead of buying is gil you did not spend, so the material cost is also the
 // most that gathering can add back to the profit shown.
+//
+// Materials are priced on sales and listings of either quality. HQ versus NQ
+// is a question about the thing you sell, not the things you buy: you take
+// whatever is cheapest and your own crafting makes the result HQ.
 //
 // A material with no sale history on this world is costed at zero, on Shaun's
 // rule of 2026-09-13: what nobody has bought cannot be sold either, so using it
@@ -699,17 +735,16 @@ function safeUnits(demand, supply, margin) {
   return Math.max(0, Math.floor(Math.max(0, demand - supply) * (1 - margin)));
 }
 
-const expectedSales = (demand, supply, k) => {
-  if (k <= 0) return 0;
-  return Math.min(k, demand * k / (supply + k));
-};
-
 function buildCandidates(pool, cfg) {
   const rows = [], now = Date.now();
   for (const r of pool) {
-    const p = priceOf(MARKET.get(r.itemId));
+    // A craft sold as HQ has its own HQ-only record; everything else is priced
+    // as normal quality from the plain one.
+    const hqRec = HQMARKET.get(r.itemId);
+    const m = hqRec || MARKET.get(r.itemId);
+    const p = priceOf(m, hqRec ? "hq" : "nq");
     if (!p || p.listAt < cfg.minPrice) continue;
-    const m = MARKET.get(r.itemId);
+    // Demand: HQ sales alone for an HQ craft; every sale otherwise (Shaun, 2026-09-13).
     const demand = weeklyDemand(m.history);
     if (demand < cfg.minSales) continue;
     // More listings than we can see means the competition is deeper than the
@@ -717,13 +752,13 @@ function buildCandidates(pool, cfg) {
     if (p.crowded) continue;
     if (!m.updated || (now - m.updated) > cfg.staleDays * DAY) continue;
 
-    // Material cost of the first craft, from the cheapest listings. This is the
-    // figure the allocator ranks by; trueMargin walks the listings for the real
-    // quantity once that is known. Divided by yield for recipes that make more
-    // than one per craft.
+    // Material cost at the market price of each ingredient. This is the figure
+    // the allocator ranks by; trueMargin walks the listings for the real
+    // quantity once that is known, and that is what the bundle shows. Divided
+    // by yield for recipes that make more than one per craft.
     const y = Math.max(1, r.yield);
     let cost = 0;
-    for (const ing of r.ingredients) cost += ladderCost(ing.id, ing.qty).cost;
+    for (const ing of r.ingredients) cost += mkt(ing.id) * ing.qty;
     cost /= y;
     const revenue = p.listAt * (1 - cfg.tax);
     const margin = revenue - cost;
@@ -751,36 +786,73 @@ function buildCandidates(pool, cfg) {
   return rows;
 }
 
-function allocate(rows, totalSlots, maxPer, margin) {
-  const plan = rows.map(r => ({ row: r, k: 0 }));
-  for (let s = 0; s < totalSlots; s++) {
-    let best = null, bestGain = 0;
-    for (const p of plan) {
-      const mg = p.row.margin;
-      if (mg <= 0) continue;
-      if (p.k >= Math.min(maxPer, safeUnits(p.row.demand, p.row.supply, margin))) continue;
-      const gain = (expectedSales(p.row.demand, p.row.supply, p.k + 1) -
-                    expectedSales(p.row.demand, p.row.supply, p.k)) * mg;
-      if (gain > bestGain) { bestGain = gain; best = p; }
-    }
-    if (!best) break;
-    best.k++;
+// Slot allocation: most profitable item first, as many as its shortage and the
+// per-item cap allow, then the next, until the slots run out. Every slot is
+// worth exactly one unit's profit, so there is nothing cleverer to do. (An
+// earlier version discounted each extra unit by a demand-share curve; under the
+// shortage cap that curve was provably flat, so it was removed on 2026-09-13.)
+function allocate(rows, totalSlots, maxPer, margin, caps) {
+  const out = [];
+  let left = totalSlots;
+  for (const r of rows.slice().sort((a, b) => b.margin - a.margin)) {
+    if (!left) break;
+    let k = Math.min(left, maxPer, safeUnits(r.demand, r.supply, margin));
+    if (caps && caps.has(r.itemId)) k = Math.min(k, caps.get(r.itemId));
+    if (k > 0) { out.push({ row: r, k }); left -= k; }
   }
-  return plan.filter(p => p.k > 0)
-    .map(p => ({ row: p.row, k: p.k, sales: expectedSales(p.row.demand, p.row.supply, p.k) }))
-    .sort((a, b) => b.sales * b.row.margin - a.sales * a.row.margin);
+  return out.sort((a, b) => b.k * b.row.margin - a.k * a.row.margin);
 }
 
+// Allocate, then bundle; if bundling had to cut an item down, allocate again
+// with that item capped so the freed slots go to the next-best item rather
+// than sitting empty. Converges in a pass or two; bounded anyway.
+function plan(rows, cfg) {
+  const caps = new Map();        // itemId -> { from: first asked for, to: cap }
+  let result;
+  for (let pass = 0; pass < 6; pass++) {
+    const capOnly = new Map([...caps].map(([id, c]) => [id, c.to]));
+    const bundles = allocate(rows, cfg.portfolios * cfg.slots, cfg.maxPer, cfg.margin, capOnly);
+    result = partition(bundles, cfg.portfolios, cfg.slots);
+    let changed = false;
+    for (const t of result.trimmed) {
+      const c = caps.get(t.id);
+      if (!c) { caps.set(t.id, { from: t.from, to: t.to }); changed = true; }
+      else if (c.to > t.to) { c.to = t.to; changed = true; }
+    }
+    if (!changed) break;
+  }
+  // Report every item that ended up capped, whichever pass did it, and mark
+  // its row so the bundle table can tag it.
+  result.trimmed = [];
+  for (const it of result.pfs.flatMap(p => p.items)) {
+    const c = caps.get(it.row.itemId);
+    if (c && it.k < c.from) { it.trimmedFrom = c.from; result.trimmed.push({ name: it.row.name, from: c.from, to: it.k }); }
+  }
+  return result;
+}
+
+// Bundles: each item goes whole to whichever bundle is worth least and has room,
+// so bundles come out roughly equal and no two guild members craft the same
+// thing. When nothing has room for the whole quantity, the item is cut down to
+// the largest free space anywhere rather than dropped, and the cut is reported.
 function partition(bundles, n, perPortfolio) {
-  const val = b => b.sales * b.row.margin;
+  const val = b => b.k * b.row.margin;
   const pf = Array.from({ length: n }, () => ({ items: [], slots: 0, value: 0 }));
+  const trimmed = [];
   for (const b of bundles) {
-    const room = pf.filter(p => p.slots + b.k <= perPortfolio);
-    if (!room.length) continue;
+    let room = pf.filter(p => p.slots + b.k <= perPortfolio);
+    if (!room.length) {
+      const roomiest = pf.reduce((a, c) => c.slots < a.slots ? c : a);
+      const free = perPortfolio - roomiest.slots;
+      if (free <= 0) continue;                 // every bundle is full
+      trimmed.push({ id: b.row.itemId, name: b.row.name, from: b.k, to: free });
+      b.k = free;
+      room = [roomiest];
+    }
     const t = room.reduce((a, c) => c.value < a.value ? c : a);
     t.items.push(b); t.slots += b.k; t.value += val(b);
   }
-  return pf.filter(p => p.items.length);
+  return { pfs: pf.filter(p => p.items.length), trimmed };
 }
 
 // The per-unit margin assumed the cheapest listing went on forever. Once we know
@@ -822,7 +894,7 @@ function shortTag(short, world) {
 
 // Order and priority-band a bundle by its real, ladder-walked value.
 function bandFor(p) {
-  const val = it => it.sales * trueMargin(it.row, it.k).each;
+  const val = it => it.k * trueMargin(it.row, it.k).each;
   const items = p.items.slice().sort((a, b) => val(b) - val(a));
   const total = items.reduce((a, it) => a + val(it), 0);
   let run = 0;
@@ -926,8 +998,7 @@ function matTable(list, splitGathering) {
 function render() {
   if (!LAST) return;
   const { rows, cfg } = LAST;
-  const bundles = allocate(rows, cfg.portfolios * cfg.slots, cfg.maxPer, cfg.margin);
-  const pfs = partition(bundles, cfg.portfolios, cfg.slots);
+  const { pfs, trimmed } = plan(rows, cfg);
   const grand = pfs.reduce((a, p) => a + p.value, 0);
   const used = pfs.reduce((a, p) => a + p.slots, 0);
   const allItems = pfs.flatMap(p => p.items);
@@ -935,14 +1006,20 @@ function render() {
   const guildCraft = materialsFor(allItems, false);
   const guildRaw = materialsFor(allItems, true);
 
-  let html = '<div class="panel"><h2>This week on ' + esc(cfg.world) + '</h2><div class="totals">' +
+  let html = '<div class="panel"><h2>This week on ' + esc(cfg.world) +
+    (cfg.hq ? ' <span class="tag seal" title="HQ only: crafts that can be high quality are priced, demanded and counted on HQ sales and listings alone. Materials are unaffected.">HQ only</span>' : '') +
+    '</h2><div class="totals">' +
     '<div><span>Expected profit, buying every material</span><strong>' + gil(grand) + '</strong></div>' +
     '<div><span>Bundles</span><strong>' + pfs.length + '</strong></div>' +
     '<div><span>Slots used</span><strong>' + used + '</strong></div>' +
     '</div><div class="hint">Claim a bundle by number in Discord. No two bundles share an item. ' +
     'Values account for the ' + Math.round(cfg.tax * 100) + '% tax, what is already listed, and the fact ' +
     'that you cannot sell more than you craft. Materials are costed as bought; whatever you gather ' +
-    'yourself comes back as extra profit.</div></div>';
+    'yourself comes back as extra profit.</div>' +
+    (trimmed.length ? '<div class="hint" style="color:var(--warn)">Cut to fit a bundle, because no bundle had room ' +
+      'for the whole quantity and an item is never split across two: ' +
+      trimmed.map(t => esc(t.name) + ' ' + t.from + ' &rarr; ' + t.to).join('; ') + '.</div>' : '') +
+    '</div>';
 
   const tabs = [["pf","Bundles",pfs.length],["all","All items",rows.length],
     ["cmat","Crafting Materials",""],["rmat","Raw Materials",""],
@@ -967,6 +1044,10 @@ function render() {
         const tm = trueMargin(r, it.k);
         const made = PROGRESS.crafted[r.itemId] || 0;
         let tags = "";
+        if (r.hq) tags += '<span class="tag seal" title="Sold as high quality: price, demand and supply are from HQ sales and listings only.">HQ</span>';
+        if (it.trimmedFrom) tags += '<span class="tag flag" title="The allocator wanted ' + it.trimmedFrom +
+          ' but no bundle had room for that many, and an item is never split across two bundles.">cut from ' +
+          it.trimmedFrom + '</span>';
         if (r.openMarket) tags += '<span class="tag open" title="Nobody else has this genuinely listed right now, so there is no rival to undercut and it lists at the market price.">open market</span>';
         if (r.stale) tags += '<span class="tag stale" title="No data uploaded for over a week">stale</span>';
         else if (r.oldSupply) tags += '<span class="tag stale" title="' +
@@ -996,13 +1077,14 @@ function render() {
             ' should be filled after the safety margin.">' + r.supply + (r.clipped ? '+' : '') +
             ' <span style="color:var(--muted)">vs ' + r.demand.toFixed(0) + '/wk &middot; ' +
             (r.sellers || 0) + ' seller' + ((r.sellers || 0) === 1 ? '' : 's') + '</span></td>' +
-          '<td title="For a single unit the materials would cost ' + gil(r.cost) +
-            '. This is the cost per unit for the quantity shown, walking the listings cheapest first ' +
-            'and never paying more than the market price for any of them.">' +
-            gil(tm.mats) + '</td>' +
-          '<td title="For a single unit the profit would be ' + gil(r.margin) +
-            '. This is the figure per unit for the quantity shown.">' +
-            gil(tm.each) + '</td><td>' + gil(it.sales * tm.each) + '</td>' +
+          '<td title="At market price the materials come to ' + gil(r.cost) +
+            ' per unit, which is what the ranking used. This is what they cost per unit for the ' +
+            'quantity shown, walking the listings cheapest first and never paying more than the ' +
+            'market price for any of them.">' + gil(tm.mats) + '</td>' +
+          '<td title="At market price for materials the profit is ' + gil(r.margin) +
+            ' per unit, which is what the ranking used. This is the figure with materials at what ' +
+            'the listings actually ask for the quantity shown.">' +
+            gil(tm.each) + '</td><td>' + gil(it.k * tm.each) + '</td>' +
           '<td><input class="track" type="number" min="0" max="99" data-craft="' + r.itemId +
           '" data-need="' + it.k + '" value="' + made + '"></td></tr>';
       }
@@ -1153,6 +1235,7 @@ function applySession(d) {
   if (c.minPrice != null) $("minprice").value = c.minPrice;
   if (c.minSales != null) $("minsales").value = c.minSales;
   if (c.margin != null) $("margin").value = Math.round(c.margin * 100);
+  $("hqonly").checked = !!c.hq;
 
   // Show the categories this scan used, so the page reads consistently.
   const cats = d.categories || [];
@@ -1298,6 +1381,7 @@ $("btnScan").onclick = async () => {
       staleDays: +$("stale").value || 180, minPrice: +$("minprice").value || 0,
       minSales: +$("minsales").value || 0,
       margin: (+$("margin").value >= 0 ? +$("margin").value : 20) / 100,
+      hq: $("hqonly").checked,
       mine: $("mine").value.trim() };
 
     // Must happen before anything is fetched: loadMarket drops these listings as
@@ -1329,26 +1413,34 @@ $("btnScan").onclick = async () => {
       for (const [id, nm] of names) if (nm === name) { GATHERABLE.add(id); mine++; }
     }
 
+    // HQ only: the crafts you would sell that the game allows a high-quality
+    // version of get a second, HQ-only record. Materials are never affected,
+    // and a craft with no HQ version behaves as normal.
+    const hqIds = cfg.hq ? new Set(pool.map(r => r.itemId).filter(id => CAN_HQ.has(id))) : new Set();
+
     setBar(0);
-    setStatus("Pricing " + ids.size + " items on " + cfg.world + "…");
+    setStatus("Pricing " + ids.size + " items on " + cfg.world +
+              (hqIds.size ? ", plus " + hqIds.size + " crafts as HQ" : "") + "…");
     const res = await loadMarket(cfg.world, [...ids], (d, t) => {
       setBar(d / t); setStatus("Pricing on " + cfg.world + "… " + d + " / " + t);
-    });
-    MARKET = res.market;
+    }, hqIds);
+    MARKET = res.market; HQMARKET = res.hqMarket;
     PRICE = new Map(); LADDER = new Map();
     for (const [id, m] of MARKET) {
-      const p = priceOf(m);
+      // Materials: either quality. See the cost model.
+      const p = priceOf(m, "any");
       // An item with no sale history has no price and, by the same rule, no
       // ladder: it is costed at zero everywhere, so the ranking and the bundle
       // view cannot disagree about it.
       if (!p) continue;
-      // PRICE is the item's market price: the median of its last 40 sales.
+      // PRICE is the material's market price: the median of its last 40 sales.
       PRICE.set(id, p.median);
       // The ladder is what you could actually buy here: listings within reach
       // of the real sale price, and not your own. ladderCost caps every rung at
       // the median, so a dear listing costs no more than buying elsewhere.
-      const real = (m.listings || []).filter(l => !l.mine && l.price <= p.median * ABSURD)
-                     .sort((a, b) => a.price - b.price).slice(0, LISTINGS);
+      const real = (m.listings || [])
+        .filter(l => !l.mine && l.price <= p.median * ABSURD)
+        .sort((a, b) => a.price - b.price).slice(0, LISTINGS);
       if (real.length) LADDER.set(id, real);
     }
 

@@ -14,10 +14,10 @@ const DAY = 86400;
 
 // One craftable furnishing, one material it needs. Prices are chosen so every
 // changed behaviour has something to bite on.
-const mkRecipe = (rid, iid, name, cat, ingId, ingName, qty) => ({
+const mkRecipe = (rid, iid, name, cat, ingId, ingName, qty, canHq) => ({
   row_id: rid,
   fields: {
-    ItemResult: { row_id: iid, fields: { Name: name, IsUntradable: false,
+    ItemResult: { row_id: iid, fields: { Name: name, IsUntradable: false, CanBeHq: !!canHq,
                   ItemUICategory: { fields: { Name: cat } } } },
     AmountResult: 1,
     AmountIngredient: [qty, 0, 0, 0, 0, 0, 0, 0],
@@ -36,7 +36,11 @@ const RECIPES = [
   //    costed at zero and the row is tagged "material unpriced"; the recipe
   //    below is no longer used as a cost fallback, only for the raw-materials tab.
   mkRecipe(4, 9005, "Test Lamp", "Table", 9004, "Test Ore", 2),
-  mkRecipe(5, 9004, "Test Ore", "Metal", 9002, "Test Plank", 3)
+  mkRecipe(5, 9004, "Test Ore", "Metal", 9002, "Test Plank", 3),
+  // 4. can be HQ. NQ sells at 30,000, HQ at 50,000, one listing of each. With
+  //    the box off it must price and count on NQ; with it on, on HQ. Its
+  //    material (Test Plank) must be unaffected either way.
+  mkRecipe(6, 9006, "Test Ring", "Ring", 9002, "Test Plank", 1, true)
 ];
 
 // Test Wall: 60 sales. The newest 40 sit at 80,000; the 20 oldest at 20,000.
@@ -75,8 +79,25 @@ const UNI = {
     lastUploadTime: NOW * 1000,
     listings: [{ pricePerUnit: 200000, quantity: 2, hq: false, retainerName: "Rival-six" }],
     recentHistory: hist
+  },
+  9006: {                                    // Test Ring: NQ at 30,000, HQ at 50,000
+    lastUploadTime: NOW * 1000,
+    listings: [
+      { pricePerUnit: 30000, quantity: 1, hq: false, retainerName: "Rival-seven" },
+      { pricePerUnit: 50000, quantity: 1, hq: true,  retainerName: "Rival-eight" }
+    ],
+    recentHistory: [...Array(40)].flatMap((_, i) => [
+      { hq: false, pricePerUnit: 30000, quantity: 1, timestamp: NOW - i * 7200 },
+      { hq: true,  pricePerUnit: 50000, quantity: 1, timestamp: NOW - i * 7200 - 3600 }
+    ])
   }
 };
+
+// Universalis' hq=true returns only the HQ side of listings and history, and
+// nothing at all for an item that cannot be HQ.
+const hqOnly = it => ({ ...it,
+  listings: it.listings.filter(l => l.hq),
+  recentHistory: it.recentHistory.filter(h => h.hq) });
 
 (async () => {
   const browser = await chromium.launch();
@@ -95,8 +116,9 @@ const UNI = {
     if (url.includes("v2.xivapi.com/api/sheet")) return json({ rows: [] });
     if (url.includes("universalis.app")) {
       const ids = url.split("/").pop().split("?")[0].split(",").map(Number);
+      const hq = url.includes("hq=true");
       const items = {};
-      for (const id of ids) if (UNI[id]) items[id] = UNI[id];
+      for (const id of ids) if (UNI[id]) items[id] = hq ? hqOnly(UNI[id]) : UNI[id];
       return json({ items });
     }
     return route.continue();
@@ -113,25 +135,41 @@ const UNI = {
 
   await page.click("#btnLoad");
   await page.waitForSelector("#btnScan:not([disabled])", { timeout: 20000 });
-  await page.click("#btnScan");
-  await page.waitForFunction(() => /passed the filters/.test(document.getElementById("status").textContent),
-                             null, { timeout: 30000 });
+  // The Test Ring is gear, which the page does not tick by default.
+  await page.check('#groups label[data-group="All"] input');
 
-  const status = await page.textContent("#status");
-  const statusClass = await page.getAttribute("#status", "class");
-  const table = await page.textContent("#out").catch(() => "");
-  const tags = await page.$$eval(".tag", ns => ns.map(n => n.textContent.trim() + " || " + (n.getAttribute("title") || "")));
-  const listAt = await page.$$eval("table tr", rows => rows.map(r =>
-    [...r.querySelectorAll("th,td")].map(c => c.textContent.replace(/\s+/g," ").trim().slice(0,60))));
+  // Two scans: HQ only off, then on. Only the Test Ring should change.
+  const readOut = async () => {
+    const status = await page.textContent("#status");
+    const statusClass = await page.getAttribute("#status", "class");
+    const tags = await page.$$eval(".tag", ns => ns.map(n => n.textContent.trim() + " || " + (n.getAttribute("title") || "")));
+    const rows = await page.$$eval("table tr", rows => rows.map(r =>
+      [...r.querySelectorAll("th,td")].map(c => c.textContent.replace(/\s+/g," ").trim().slice(0,60))));
+    return { status, statusClass, tags, rows };
+  };
+  const scan = async () => {
+    await page.evaluate(() => { document.getElementById("status").textContent = ""; });
+    await page.click("#btnScan");
+    await page.waitForFunction(() => /passed the filters/.test(document.getElementById("status").textContent),
+                               null, { timeout: 30000 });
+    return readOut();
+  };
+
+  const nq = await scan();
+  await page.check("#hqonly");
+  const hq = await scan();
 
   console.log("version stamp      :", stamp);
   console.log("own-retainer field :", JSON.stringify(mineField));
-  console.log("status class       :", statusClass);
-  console.log("status text        :", status);
-  console.log("rows               :", JSON.stringify(listAt, null, 1));
-  console.log("tags rendered      :");
-  for (const t of tags) console.log("   -", t);
-  console.log("page errors        :", errors.length ? errors : "none");
+  for (const [label, r] of [["HQ only OFF", nq], ["HQ only ON", hq]]) {
+    console.log("\n=== " + label + " ===");
+    console.log("status class       :", r.statusClass);
+    console.log("status text        :", r.status);
+    console.log("rows               :", JSON.stringify(r.rows, null, 1));
+    console.log("tags rendered      :");
+    for (const t of r.tags) console.log("   -", t);
+  }
+  console.log("\npage errors        :", errors.length ? errors : "none");
 
   await page.screenshot({ path: SHOT, fullPage: true });
   await browser.close();

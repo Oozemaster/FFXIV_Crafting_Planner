@@ -10,7 +10,7 @@ by number in Discord, craft it, list it.
 2026-09-06 is not implemented — see [Designed but not built](#designed-but-not-built).
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.13.26.2`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.13.26.3`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)
@@ -87,13 +87,43 @@ type column says which.
 | Window | Current value | Type | Applies to |
 |---|---|---|---|
 | Sale history fetched | Last **200 sales** per item, any quality | Count | Feeds both the market price and weekly demand. Deliberately a count, not a period: a fast mover's 200 sales may span three weeks and a slow one's two years. Measured 2026-09-13: Wooden Loft 2.8 weeks, Wine Barrel 8.1, Masonwork Interior Wall 15, Riviera Wardrobe 75. Universalis would return up to 999, reaching about 201 weeks back; 200 was kept to limit request size. |
-| Market price | Last **40 normal-quality sales** of those | Count | Deliberate. The last 40 sales are what the item is selling for now, regardless of how long they took. |
+| Market price | Last **40 sales** of those, of the quality being priced (see Quality) | Count | Deliberate. The last 40 sales are what the item is selling for now, regardless of how long they took. |
 | Weekly demand bands | **0-4 weeks at 50%**, **4-12 weeks at 30%**, **older at 20%** | Duration | Recent weeks count more without one quiet week dominating. All qualities count. |
-| Listings fetched | Cheapest **20 listings** per item | Count | Competition depth and the material price ladder. Universalis returns listings cheapest first, so these are the only ones competing with you. High-quality listings are dropped as they are read; your own retainers' listings are kept and flagged. |
-| Price ladder retained | Cheapest **20** real listings, your own excluded | Count | Material cost calculation. |
+| Listings fetched | Cheapest **20 listings** per item | Count | Competition depth and the material price ladder. Universalis returns listings cheapest first, so these are the only ones competing with you. Both qualities are kept and flagged; a craft counts only the quality it is sold as (see Quality). Your own retainers' listings are kept and flagged. |
+| Price ladder retained | Cheapest **20** real listings of either quality, your own excluded | Count | Material cost calculation. |
 | Staleness cutoff | **180 days** | Duration | Items whose last upload is older are dropped entirely. |
 | Supply-age warning | **24 hours** | Duration | Items whose last upload is older than this are kept, but tagged with the age of the reading, because the supply count is that old. |
 | Tracker sale window | Last **48 hours** per run | Duration | Overlaps the daily gap; duplicates are removed by matching timestamp, item, price and quantity. |
+
+### Quality
+
+HQ versus NQ is a question about the thing you sell, never about the things you buy.
+Shaun, 2026-09-13.
+
+**Crafts.** The **HQ only** box in the setup panel, off by default, means "sell as high
+quality". When ticked, every craft in the scan that the game allows an HQ version of gets
+its three numbers from HQ data alone — the 40-sale median from HQ sales, weekly demand
+from HQ sales, current listings from HQ listings, and the one-gil undercut against the
+cheapest HQ rival — requested from Universalis with its `hq=true` filter, which matters
+because the 20 cheapest of a mixed list could all be NQ. Crafts with no HQ version, which
+is every furnishing, behave exactly as with the box off. Rows sold as HQ are tagged "HQ".
+With the box off, a craft is priced and its competition counted on NQ; its demand counts
+every sale.
+
+**Materials.** Either quality, always: the market price is the median of the last 40 sales
+of any quality, and the ladder walks listings of any quality, cheapest first. You buy
+whatever is cheapest and your own crafting makes the result HQ. Measured 2026-09-13 on
+Seraph: HQ listings of commodity materials sit level with NQ or a gil under (Silver Ingot
+500 NQ, 499 HQ; Cotton Yarn 150, 148), so the ladder is barely moved; the mixed median can
+differ from the NQ-only one in either direction (Silver Ingot 651 against 300, Mythril
+Ingot 526 against 785), because the last 40 mixed sales cover a different period from the
+last 40 NQ ones.
+
+An item that is both a craft in the scan and a material in another craft is fetched
+twice and priced HQ as a craft, either quality as a material.
+
+Whether an item can be HQ comes from XIVAPI's `CanBeHq` on the Item sheet, read off each
+recipe's result as recipes load.
 
 ---
 
@@ -149,7 +179,9 @@ without refetching.
 
 ### 1. Market price
 
-Median of the last 40 recorded sales for that item, normal quality only.
+Median of the last 40 recorded sales for that item. For a craft, sales of the quality
+you are selling — NQ, or HQ with the box ticked; for a material, sales of either quality
+(see Quality).
 
 ```
 marketPrice = median(prices of the last 40 sales)
@@ -166,7 +198,7 @@ sales between 9,500 and 45,999 gil, median 18,999. Priced at 18,999.
 ### 2. Current listings
 
 ```
-realListings = normal-quality listings priced at or below marketPrice x 2.0,
+realListings = listings of the quality being sold, priced at or below marketPrice x 2.0,
                your own retainers included
 supply       = sum of quantities across realListings
 sellers      = count of distinct retainerName across realListings
@@ -308,39 +340,35 @@ The margin covers everything the model cannot see, chiefly competitors listing a
 It leaves a shortage open rather than closing it, on the reasoning that the marginal
 seller is the one who gets undercut.
 
-### 7. Expected sales
+### 7. Profit and ranking
 
 ```
-expectedSales = min(yourUnits, weeklyDemand x yourUnits / (supply + yourUnits))
+profitEach = (listAt x 0.90) - materialCost
 ```
 
-`supply` is what is listed at scan time. **Competitors who list during the week are not
-modelled at all.** Every estimate is therefore an upper bound.
+The 0.90 is the 10% market board sales tax. For ranking, `materialCost` is each
+ingredient at its market price (section 4); the bundle view shows the same figure with
+materials at what the listings actually ask for the quantity recommended. Expected profit
+for a row is quantity times profit each. **Competitors who list during the week are not
+modelled**; the safety margin in section 6 is what covers them.
 
-The `min(yourUnits, ...)` cap prevents the tool claiming sales above the number crafted.
+Until 2026-09-13 an "expected sales" curve discounted each additional unit of an item.
+Under the shortage cap it was provably flat — the cap keeps quantity below the demand gap,
+and inside that range the curve returns the quantity unchanged — so it was removed.
 
-### 8. Profit and ranking
+### 8. Slot allocation
 
-```
-profitEach   = (listAt x 0.90) - materialCost
-valuePerSlot = expectedSales x profitEach
-```
+Total slots are bundles times slots per bundle. The most profitable item takes as many as
+its shortage and the per-item cap allow, then the next, until the slots run out.
 
-The 0.90 is the 10% market board sales tax. There is one profit figure per item. The
-allocator ranks by the per-unit figure; the bundle view shows the ladder-walked figure for
-the quantity actually recommended, and the difference is the cheapest listing running out.
+Bundles are then filled by handing each item, whole, to whichever bundle currently has the
+lowest total value and room for it. No item appears in two bundles, so no two guild
+members compete on the same item. When no bundle has room for the whole quantity, the
+item is cut down to the largest free space anywhere, the row is tagged "cut from N", and
+the summary says so. Allocation then runs again with that item capped, so the freed slots
+go to the next-best item rather than sitting empty.
 
-### 9. Slot allocation
-
-Slots are assigned one at a time. Each slot goes to whichever item gains the most from
-receiving it, measured as the increase in `expectedSales x profitEach`. Because each
-additional unit of an item is worth less than the previous one, slots distribute across
-multiple items without any explicit diversification rule.
-
-Bundles are then filled by repeatedly assigning the next item to whichever bundle
-currently has the lowest total value. No item appears in two bundles.
-
-### 10. Priority bands
+### 9. Priority bands
 
 Within a bundle, items are sorted by their contribution to that bundle's total expected
 value, then banded by cumulative share of **that bundle's total expected value**:
@@ -440,7 +468,6 @@ is not detected by a daily reading taken around midday.
 bundle and Max of one item fall back to 20 and 10 rather than the page defaults of 40
 and 20. Only matters if a field is cleared.
 
-**High quality is counted in demand but not in price or listings.** Since v09.13.26.2
-every sale counts toward weekly demand, but the market price is the median of
-normal-quality sales and only normal-quality listings count as supply. Consistent for
-furnishings, which have no high-quality version; for gear the three would need to agree.
+**With HQ only off, a craft's demand counts both qualities but its price and listings
+are NQ.** Consistent for furnishings, which have no high-quality version. For gear, tick
+HQ only, which makes all three HQ.
