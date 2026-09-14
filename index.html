@@ -107,7 +107,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.13.26.1</span></p>
+    <span class="stamp">v09.13.26.2</span></p>
 </header>
 
 <div class="panel">
@@ -123,7 +123,7 @@
     <div><label class="field" for="minprice">Min sale price (gil)</label><input type="number" id="minprice" value="5000" min="0" step="1000"></div>
     <div><label class="field" for="minsales">Min sales per week</label><input type="number" id="minsales" value="1" min="0" step="0.5"></div>
     <div><label class="field" for="margin">Safety margin %</label><input type="number" id="margin" value="20" min="0" max="90" step="5"></div>
-    <div class="wide"><label class="field" for="mine">Your own retainers (ignored as competition)</label>
+    <div class="wide"><label class="field" for="mine">Your own retainers (counted as listed, never undercut)</label>
       <input type="text" id="mine" placeholder="Spicy-soy, Momo-mochi" value="Spicy-soy, Momo-mochi"></div>
   </div>
   <div class="row">
@@ -173,11 +173,14 @@
     the assumption you travel to another world to buy them — which you can, anywhere in North
     America. Crafts needing that trip are tagged.</p>
     <p><strong>Every material is costed as bought</strong>, at what the listings actually ask,
-    cheapest first. Profit is what you make if you buy the lot. Anything you gather or farm instead is
-    gil you did not spend, so the Mats each column is the most that gathering can add back — and an
-    expensive material is expensive because it is hard to get, which is a real cost however you pay it.
-    The Crafting Materials tab is the shopping list; the Raw Materials tab is the same list broken
-    down into things you can gather.</p>
+    cheapest first, but never more than the material's own market price — a listing above that is a
+    cue to buy on another world, not a price you are stuck with. Profit is what you make if you buy
+    the lot. Anything you gather or farm instead is gil you did not spend, so the Mats each column is
+    the most that gathering can add back — and an expensive material is expensive because it is hard
+    to get, which is a real cost however you pay it. The Crafting Materials tab is the shopping list;
+    the Raw Materials tab is the same list broken down into things you can gather.</p>
+    <p><strong>Your own listings count as supply.</strong> Ten of yours already on the board means ten
+    fewer to make. They are never undercut and never bought from.</p>
     <p style="margin-bottom:0"><strong>Progress does not save automatically</strong> from a file on your
     hard drive — the browser forbids it. Use Save and Load session, or host the page.</p>
   </div>
@@ -487,21 +490,23 @@ async function loadMarket(world, ids, onProgress) {
     // Universalis answers a one-item request in a different shape, so pad it.
     if (batch.length === 1) batch.push(batch[0] === 5057 ? 5058 : 5057);
     const det = await getJSON("https://universalis.app/api/v2/" + w + "/" + batch.join(",") +
-                              "?listings=30&entries=200");
+                              "?listings=" + LISTINGS + "&entries=200");
     const items = det.items || {};
     for (const k of Object.keys(items)) {
       const it = items[k], id = Number(k);
       out.set(id, {
-        history: (it.recentHistory || []).filter(h => !h.hq && h.pricePerUnit > 0)
-        .map(h => ({ p: h.pricePerUnit, q: h.quantity || 1, t: h.timestamp || 0 })),
-        // Your own retainers are not competition and you cannot buy from
-        // yourself, so they are dropped here, before anything counts supply,
-        // sellers, the cheapest price or the material ladder.
-        listings: (it.listings || []).filter(l => !l.hq && !isMine(l.retainerName))
+        // Every sale, high quality included, so demand counts all of them. The
+        // price median filters to normal quality itself.
+        history: (it.recentHistory || []).filter(h => h.pricePerUnit > 0)
+        .map(h => ({ p: h.pricePerUnit, q: h.quantity || 1, t: h.timestamp || 0, hq: !!h.hq })),
+        // Your own retainers stay in the list, flagged. They count as supply —
+        // ten already listed means ten fewer to make — but are never undercut
+        // and cannot be bought from. priceOf and the ladder read the flag.
+        listings: (it.listings || []).filter(l => !l.hq)
         .map(l => ({ price: l.pricePerUnit, qty: l.quantity || 1,
-                     who: l.retainerName || "", id: l.listingID || "" })),
-        mine: (it.listings || []).filter(l => !l.hq && isMine(l.retainerName)).length,
-        clipped: (it.listings || []).length >= 30,
+                     who: l.retainerName || "", id: l.listingID || "",
+                     mine: isMine(l.retainerName) })),
+        clipped: (it.listings || []).length >= LISTINGS,
         updated: it.lastUploadTime || 0 });
     }
   };
@@ -539,6 +544,12 @@ async function loadMarket(world, ids, onProgress) {
 
 const ABSURD = 2.0;   // listings above this multiple of the real sale price are not competition
 
+// How many listings to fetch per item, cheapest first. Twenty is also the
+// crowding threshold: if the twentieth is still under the junk cutoff, there is
+// enough on the board already that the item is not worth entering. Shaun,
+// 2026-09-13. The material ladder is the same twenty.
+const LISTINGS = 20;
+
 // How many sales the market price is taken from. The request asks Universalis for
 // up to 200 so that weekly demand has a long history to work with, but 200 sales
 // on a slow furnishing can reach back two years, and a median over that is a
@@ -550,53 +561,55 @@ const PRICE_SALES = 40;
 
 function priceOf(m) {
   if (!m) return null;
-  // Newest first, then the most recent PRICE_SALES of them.
-  const recent = (m.history || []).slice().sort((a, b) => b.t - a.t).slice(0, PRICE_SALES);
+  // Normal quality only, newest first, then the most recent PRICE_SALES of them.
+  const recent = (m.history || []).filter(h => !h.hq).sort((a, b) => b.t - a.t).slice(0, PRICE_SALES);
   const med = median(recent.map(h => h.p));
   if (!med) return null;
   const raw = m.listings || [];
-  const real = raw.filter(l => l.price <= med * ABSURD);
+  // Current Listings: everything genuinely on the board, your own included. Ten
+  // of yours already listed means ten fewer to make — whatever you priced them
+  // at, since repricing is your call. A rival's listing above the junk cutoff
+  // is decoration; yours is stock.
+  const real = raw.filter(l => l.mine || l.price <= med * ABSURD);
   const supply = real.reduce((a, l) => a + l.qty, 0);
+  const mine = real.filter(l => l.mine).reduce((a, l) => a + l.qty, 0);
   // Listings arrive cheapest first. If the last one we were given is still below
   // the junk threshold there are more real listings beyond it, so `supply` is a
   // floor rather than a count.
   const crowded = !!m.clipped && raw.length > 0 && raw[raw.length - 1].price <= med * ABSURD;
-  const lowest = real.length ? Math.min(...real.map(l => l.price)) : 0;
-  // Forty listings from five retainers is a very different market from forty
-  // listings from forty people. Count the people.
+  // Twenty listings from five retainers is a very different market from twenty
+  // listings from twenty people. Count the people.
   const sellers = new Set(real.map(l => l.who).filter(Boolean)).size;
-  // Never match the cheapest listing. The board sells cheapest first and a tie
+  // Never match the cheapest rival. The board sells cheapest first and a tie
   // loses it, so go one gil under — or lower still if the sale price says so.
+  // Your own listings are not rivals; undercutting yourself helps nobody.
+  const rivals = real.filter(l => !l.mine);
+  const lowest = rivals.length ? Math.min(...rivals.map(l => l.price)) : 0;
   const listAt = lowest ? Math.max(1, Math.min(lowest - 1, med)) : med;
-  // What the same item costs to BUY, which is not the same question: you pay the
-  // asking price, you do not get the extra gil off for undercutting yourself.
-  const buyAt = lowest ? Math.min(lowest, med) : med;
-  return { median: med, listAt, buyAt, supply, sellers, priceFrom: recent.length,
-           realListings: real.length, openMarket: real.length === 0,
-           crowded, clipped: !!m.clipped,
-           junk: (m.listings || []).length - real.length };
+  return { median: med, listAt, supply, mine, sellers, priceFrom: recent.length,
+           realListings: real.length, openMarket: rivals.length === 0,
+           crowded, clipped: !!m.clipped, junk: raw.length - real.length };
 }
+// An item's market price: the median of its last 40 normal-quality sales.
 const mkt = id => PRICE.get(id) || 0;
 const availOf = id => (LADDER.get(id) || []).reduce((a, l) => a + l.qty, 0);
 
-// What it really costs to buy this many units: walk your own world's listings
-// cheapest first. If they run out, you have not hit a wall — data centre travel
-// means you can buy from any world in the region — so the rest are priced at
-// what the local ones averaged. `imported` is how many need that trip.
+// What it costs to buy this many units. Walk the world's listings cheapest
+// first, but never pay more than the market price for a unit: a listing above
+// the median is not a bargain you are forced into, it is a sign to buy on
+// another world at the going rate. So every unit costs min(listing, median),
+// and once the listings run out the rest cost the median. `imported` is how
+// many units the local board could not cover at all. Shaun, 2026-09-13.
 function ladderCost(id, units) {
-  let left = units, cost = 0, bought = 0;
+  const med = PRICE.get(id) || 0;
+  if (!med) return { cost: 0, imported: units };     // never sold here: costed at zero
+  let left = units, cost = 0;
   for (const l of (LADDER.get(id) || [])) {
     const take = Math.min(l.qty, left);
-    cost += take * l.price; left -= take; bought += take;
+    cost += take * Math.min(l.price, med); left -= take;
     if (!left) break;
   }
-  let imported = 0;
-  if (left) {
-    imported = left;
-    const elsewhere = bought ? cost / bought : (PRICE.get(id) || 0);
-    cost += left * elsewhere;
-  }
-  return { cost, imported };
+  return { cost: cost + left * med, imported: left };
 }
 
 // ---------------------------------------------------------------------------
@@ -673,13 +686,17 @@ function weeklyDemand(history, nowSec) {
   return den ? num / den : 0;
 }
 
-// The most you should make: the gap between what sells each week and what is
-// already listed, less a safety margin. The margin covers everything the model
-// does not see — chiefly competitors listing after you, but also demand moving.
-// Rounded up, so it always bites.
+// Shortage: the most you should make. The gap between what sells each week and
+// what is already listed, less a safety margin, rounded down once at the end.
+// The margin covers everything the model does not see — chiefly competitors
+// listing after you, but also demand moving.
+//
+//   shortage = floor((demand - listed) x (1 - margin))
+//
+// Shaun's formula, 2026-09-13. An incoming-supply term will be subtracted
+// alongside `listed` once the tracker can measure it.
 function safeUnits(demand, supply, margin) {
-  const headroom = Math.max(0, demand - supply);
-  return Math.max(0, Math.floor(headroom - Math.ceil(headroom * margin)));
+  return Math.max(0, Math.floor(Math.max(0, demand - supply) * (1 - margin)));
 }
 
 const expectedSales = (demand, supply, k) => {
@@ -700,12 +717,13 @@ function buildCandidates(pool, cfg) {
     if (p.crowded) continue;
     if (!m.updated || (now - m.updated) > cfg.staleDays * DAY) continue;
 
-    // Per-unit material cost at the market price of each ingredient. This is the
+    // Material cost of the first craft, from the cheapest listings. This is the
     // figure the allocator ranks by; trueMargin walks the listings for the real
-    // quantity once that is known.
+    // quantity once that is known. Divided by yield for recipes that make more
+    // than one per craft.
     const y = Math.max(1, r.yield);
     let cost = 0;
-    for (const ing of r.ingredients) cost += mkt(ing.id) * ing.qty;
+    for (const ing of r.ingredients) cost += ladderCost(ing.id, ing.qty).cost;
     cost /= y;
     const revenue = p.listAt * (1 - cfg.tax);
     const margin = revenue - cost;
@@ -728,8 +746,7 @@ function buildCandidates(pool, cfg) {
       // said "nothing listed" when the board had filled up since. A week is far
       // too loose for a competition count, so anything over a day is called out.
       supplyAge: now - m.updated,
-      oldSupply: (now - m.updated) > DAY,
-      mine: m.mine || 0 });
+      oldSupply: (now - m.updated) > DAY });
   }
   return rows;
 }
@@ -798,7 +815,7 @@ function shortTag(short, world) {
     ". " + (s.craftable ? "Has a recipe, so craft the rest or buy them on another world."
           : s.canGather ? "Gatherable, so gather the rest or buy them on another world."
           : "Buy the rest on another world.") +
-    " The shortfall is costed at " + (s.have ? "the average of what was listed." : "the median of the last 40 sales."));
+    " The shortfall is costed at the market price, which is what another world would charge.");
   const label = short.slice(0, 2).map(s => s.name).join(", ") + (short.length > 2 ? " +" + (short.length - 2) : "");
   return '<span class="tag flag" title="' + esc(lines.join("\n")) + '">short: ' + esc(label) + '</span>';
 }
@@ -950,14 +967,15 @@ function render() {
         const tm = trueMargin(r, it.k);
         const made = PROGRESS.crafted[r.itemId] || 0;
         let tags = "";
-        if (r.openMarket) tags += '<span class="tag open" title="Nothing genuinely listed against this right now">open market</span>';
+        if (r.openMarket) tags += '<span class="tag open" title="Nobody else has this genuinely listed right now, so there is no rival to undercut and it lists at the market price.">open market</span>';
         if (r.stale) tags += '<span class="tag stale" title="No data uploaded for over a week">stale</span>';
         else if (r.oldSupply) tags += '<span class="tag stale" title="' +
           'The last time anybody looked at this item on the market board was ' + ageOf(r.supplyAge) +
           ' ago, so the supply figure is that old. Listings may have appeared since. ' +
           'Check the board before trusting the quantity.">supply ' + ageOf(r.supplyAge) + ' old</span>';
-        if (r.mine) tags += '<span class="tag seal" title="' + r.mine +
-          ' of the listings on this item are your own retainers, and are not counted as competition.">' +
+        if (r.mine) tags += '<span class="tag seal" title="' + r.mine + ' of the ' + r.supply +
+          ' units listed are on your own retainers. They count as supply, so the quantity above is ' +
+          'what is needed beyond them. They are never undercut and cannot be bought from.">' +
           r.mine + ' yours listed</span>';
         if (r.hasSeal) tags += '<span class="tag seal">GC seal mats</span>';
         if (tm.unpriced) tags += '<span class="tag flag" title="' +
@@ -978,11 +996,12 @@ function render() {
             ' should be filled after the safety margin.">' + r.supply + (r.clipped ? '+' : '') +
             ' <span style="color:var(--muted)">vs ' + r.demand.toFixed(0) + '/wk &middot; ' +
             (r.sellers || 0) + ' seller' + ((r.sellers || 0) === 1 ? '' : 's') + '</span></td>' +
-          '<td title="At the market price of every material it would be ' + gil(r.cost) +
-            ' each. This is what they actually cost for the quantity shown, cheapest listings first.">' +
+          '<td title="For a single unit the materials would cost ' + gil(r.cost) +
+            '. This is the cost per unit for the quantity shown, walking the listings cheapest first ' +
+            'and never paying more than the market price for any of them.">' +
             gil(tm.mats) + '</td>' +
-          '<td title="At the market price of every material it would be ' + gil(r.margin) +
-            ' each. This is the figure after walking the listings for the quantity shown.">' +
+          '<td title="For a single unit the profit would be ' + gil(r.margin) +
+            '. This is the figure per unit for the quantity shown.">' +
             gil(tm.each) + '</td><td>' + gil(it.sales * tm.each) + '</td>' +
           '<td><input class="track" type="number" min="0" max="99" data-craft="' + r.itemId +
           '" data-need="' + it.k + '" value="' + made + '"></td></tr>';
@@ -1323,11 +1342,13 @@ $("btnScan").onclick = async () => {
       // ladder: it is costed at zero everywhere, so the ranking and the bundle
       // view cannot disagree about it.
       if (!p) continue;
-      // PRICE is what a material costs you, so it is the buying price.
-      PRICE.set(id, p.buyAt);
-      // Only listings within reach of the real sale price count as buyable.
-      const real = (m.listings || []).filter(l => l.price <= p.median * ABSURD)
-                     .sort((a, b) => a.price - b.price).slice(0, 30);
+      // PRICE is the item's market price: the median of its last 40 sales.
+      PRICE.set(id, p.median);
+      // The ladder is what you could actually buy here: listings within reach
+      // of the real sale price, and not your own. ladderCost caps every rung at
+      // the median, so a dear listing costs no more than buying elsewhere.
+      const real = (m.listings || []).filter(l => !l.mine && l.price <= p.median * ABSURD)
+                     .sort((a, b) => a.price - b.price).slice(0, LISTINGS);
       if (real.length) LADDER.set(id, real);
     }
 
@@ -1359,8 +1380,8 @@ $("btnScan").onclick = async () => {
     if (mine) msg += "  " + mine + " material" + (mine > 1 ? "s" : "") +
       " marked as self-supplied, so no market limit applies to " +
       (mine > 1 ? "them" : "it") + ".";
-    if (MY_RETAINERS.size) msg += "  Listings from " + [...MY_RETAINERS].length +
-      " of your own retainers are excluded from competition.";
+    if (MY_RETAINERS.size) msg += "  Listings from your " + MY_RETAINERS.size +
+      " retainer" + (MY_RETAINERS.size > 1 ? "s" : "") + " count as supply and are never undercut.";
     if (res.missed) msg += "  " + res.missed + " of the " + res.total +
       " items priced (recipes plus all their materials) did not load: " +
       res.batchesFailed + " request" + (res.batchesFailed > 1 ? "s" : "") +
