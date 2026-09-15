@@ -56,15 +56,22 @@ hq            false           high quality flag
 buyerName     "Mike Kelvin"   purchasing character
 ```
 
-### Listing record (example, not current)
+### Listing record
 
 ```
-pricePerUnit   749             gil each
-quantity       1               units in this listing
-retainerName   "Lizianna"      selling retainer
-listingID      "284993416..."  unique identifier for this listing
-lastReviewTime 1788733770      ignored, see above
+pricePerUnit   100000               gil each
+quantity       1                    units in this listing
+hq             false                high quality flag
+retainerName   "Evelyn-virtvs"      selling retainer
+listingID      "28499341639631650"  the game's own identifier for this listing
+lastReviewTime 1789345692           ignored, see above
 ```
+
+`listingID` is a 17-digit number that identifies the listing itself, not the upload;
+it is carried by every listing (2,368 of 2,368 in a full snapshot on 2026-09-14, all
+distinct) and by **no sale record**, on either endpoint or in Universalis' published
+schema. So a sale cannot be tied to the listing it came from; only its price, quantity,
+time and buyer are known.
 
 ### Item-level field
 
@@ -93,7 +100,6 @@ type column says which.
 | Price ladder retained | Cheapest **20** real listings of either quality, your own excluded | Count | Material cost calculation. |
 | Staleness cutoff | **180 days** | Duration | Items whose last upload is older are dropped entirely. |
 | Supply-age warning | **24 hours** | Duration | Items whose last upload is older than this are kept, but tagged with the age of the reading, because the supply count is that old. |
-| Tracker sale window | Last **48 hours** per run | Duration | Overlaps the daily gap; duplicates are removed by matching timestamp, item, price and quantity. |
 
 ### Quality
 
@@ -130,8 +136,15 @@ recipe's result as recipes load.
 ## Tracker files
 
 Written to `data/` by a GitHub Action scheduled for 13:13 UTC daily. GitHub does not run
-scheduled jobs on time: the first 7 runs (2026-09-07 to 2026-09-13) started between 16:17
-and 17:18 UTC, which is 11:17 to 12:18 Central. Treat each reading as a midday one.
+scheduled jobs on time: the first 8 runs (2026-09-07 to 2026-09-14) started between 16:17
+and 18:35 UTC, which is 11:17 to 13:35 Central. Treat each reading as a midday one.
+
+The tracker records what was listed and nothing else. It does not know whose retainers
+are whose, and it does not record sales: Universalis keeps roughly 200 weeks of those per
+item and the planner reads them live. Until 2026-09-14 it kept a `sales-YYYY-MM.csv`
+with a 48-hour window; that window missed 4 of Shaun's 11 September sales, because a
+sale only reaches Universalis when somebody next views the item, so the file was stopped
+and deleted.
 
 ### `data/items.csv`
 
@@ -161,17 +174,40 @@ One row per item per day.
 If `lastUpload` does not change between two dates, the second row is a repeat of the
 first, not a new observation.
 
-### `data/sales-YYYY-MM.csv`
+**Rows dated 2026-09-07 to 2026-09-14 with `lastUpload` 0 are empty boards, not
+unread items.** The tracker asked Universalis for no sale entries, and with none
+requested Universalis reports an empty board's upload time as 0 (measured 2026-09-14 on
+Riviera Wardrobe: `entries=0` gave 0, `entries=1` gave the real time). 425 of the
+3,114 rows from those eight days are affected, every one with zero listings; their true
+upload time is unknown. From 2026-09-15 the request asks for one entry and the column is
+correct.
 
-One row per observed sale.
+### `data/listings-YYYY-MM.csv`
+
+One row per listing per reading, from 2026-09-15. A reading is one item at one upload
+time; the tracker writes its listings the first time it sees that reading and never
+again, so a day on which nothing was refreshed adds nothing. Over the first eight days
+27% of items refreshed on a typical day, so expect roughly 1,200 rows a day.
 
 ```
-timestamp, itemId, pricePerUnit, quantity, hq
+1789311745342 , 6347 , 28499341639806030 , Nekoquatro , 7000 , 1 , 0
 ```
 
-Deduplicated on all four of timestamp, itemId, price and quantity. Stored as individual
-sales rather than daily totals so that any rate over any period can be derived later
-without refetching.
+| Column | Value | Meaning |
+|---|---|---|
+| `lastUpload` | 1789311745342 | The reading, in unix milliseconds. Same value as `stock`'s column. |
+| `itemId` | 6347 | Cross-reference against `items.csv`. |
+| `listingID` | 28499341639806030 | The game's identifier for this listing (see Record formats). |
+| `retainerName` | Nekoquatro | Selling retainer. The planner removes the user's own by name. |
+| `pricePerUnit` | 7,000 | Gil each. |
+| `quantity` | 1 | Units in this listing. |
+| `hq` | 0 | 1 for high quality. |
+
+Every listing is written, whoever posted it and whatever the price: the file is the
+board as it stood, not a judgment about it. A reading that found the board empty gets
+one marker row with a blank `listingID` and quantity 0, so "nobody had this listed" is
+distinguishable from "never read". Which files the planner reads, and what it does with
+them, is described under Calculations once that is built.
 
 ---
 

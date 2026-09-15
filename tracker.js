@@ -6,20 +6,24 @@
  * like. Universalis does not keep a history of what was LISTED — only what sold —
  * so this builds the record nobody currently has.
  *
- * Writes two things, and the split matters:
+ * Writes two things:
  *
- *   data/stock-YYYY-MM.csv   one row per item per day: what was on the board
- *   data/sales-YYYY-MM.csv   one row per observed sale, deduplicated
+ *   data/stock-YYYY-MM.csv      one row per item per day: totals for the board
+ *   data/listings-YYYY-MM.csv   one row per listing, written only when an item's
+ *                               reading is new — see below
  *
- * Sales are stored as raw facts rather than daily totals, so any rate over any
- * window can be worked out later without re-fetching. Every summary figure this
- * project has trusted from an API has turned out to depend on how the question
- * was asked; raw records do not have that problem.
+ * Sales are not recorded here. Universalis keeps roughly 200 weeks of them per
+ * item, and the planner reads them live at scan time, so a copy would only fall
+ * behind (its 48-hour window missed 4 of Shaun's 11 September sales, because a
+ * sale reaches Universalis only when somebody next views the item).
+ *
+ * The tracker knows nothing about whose retainers are whose. The listing rows
+ * carry the retainer name and the planner applies the user's own names when it
+ * reads them, so the same files serve anyone.
  */
 
 const WORLD     = process.env.WORLD || "Seraph";
 const MAX_LEVEL = +(process.env.MAX_LEVEL || 50);
-const SALES_WINDOW_H = 48;      // overlaps the daily gap generously; duplicates are removed
 
 const fs = require("fs");
 const path = require("path");
@@ -97,15 +101,41 @@ function appendCsv(file, header, rows) {
   fs.appendFileSync(file, (fresh ? row(header) + "\n" : "") + body + (body ? "\n" : ""));
 }
 
-// Existing sale keys for this month, so a 48h window overlapping yesterday's run
-// does not record the same sale twice.
-function existingSaleKeys(file) {
+// ---------------------------------------------------------------------------
+// Listings file
+//
+// Universalis only updates an item when a player with the uploader opens it,
+// so most days most items come back unchanged: 62% to 84% per day over the
+// first week. A reading is identified by the item and its upload time, and the
+// listings are written once per reading, the first time the tracker sees it.
+// A day on which nothing changed adds nothing.
+//
+// The planner's IncomingSupply needs the listings as they stood at a reading
+// at least two weeks back — every listing, whoever posted it, at whatever
+// price — to set against the board as it stands now. That is all this file is.
+//
+// A reading that found the board empty still has to be on record, or the
+// planner could not tell "nobody had this listed" from "never read". It gets
+// one marker row with no listing in it: blank listingID, quantity 0.
+// ---------------------------------------------------------------------------
+const LISTING_HEADER = ["lastUpload", "itemId", "listingID", "retainerName", "pricePerUnit", "quantity", "hq"];
+
+const listingsFile = month => `data/listings-${month}.csv`;
+
+// Every (item, upload time) already written, from this month's file and last
+// month's, so a reading that straddles the month boundary is not written twice.
+function recordedReadings(month) {
   const keys = new Set();
-  if (!fs.existsSync(file)) return keys;
-  const lines = fs.readFileSync(file, "utf8").split("\n");
-  for (let i = 1; i < lines.length; i++) {
-    const p = lines[i].split(",");
-    if (p.length >= 4) keys.add(`${p[0]}|${p[1]}|${p[2]}|${p[3]}`);
+  const [y, m] = month.split("-").map(Number);
+  const prev = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 7);
+  for (const file of [listingsFile(prev), listingsFile(month)]) {
+    if (!fs.existsSync(file)) continue;
+    const lines = fs.readFileSync(file, "utf8").split("\n");
+    // The first two columns are numbers and never quoted, so a plain split is safe.
+    for (let i = 1; i < lines.length; i++) {
+      const p = lines[i].split(",");
+      if (p.length >= 2 && p[0] && p[1]) keys.add(`${p[1]}|${p[0]}`);
+    }
   }
   return keys;
 }
@@ -129,48 +159,56 @@ async function main() {
     items.map(i => row([i.id, i.name, i.cat])).join("\n") + "\n");
 
   const stockFile = `data/stock-${month}.csv`;
-  const salesFile = `data/sales-${month}.csv`;
-  const known = existingSaleKeys(salesFile);
+  const recorded = recordedReadings(month);
 
-  const stockRows = [], saleRows = [];
-  let fetched = 0, failed = 0, newSales = 0;
+  const stockRows = [], listingRows = [];
+  let fetched = 0, failed = 0, newReadings = 0, emptyReadings = 0;
 
   for (const batch of chunk(items, 40)) {
     const ids = batch.map(i => i.id).join(",");
     try {
-      // Listings tell us the stock; history tells us what moved. Asked for
-      // together so both describe the same moment.
-      const [board, hist] = await Promise.all([
-        getJSON(`${UNI}/${encodeURIComponent(WORLD)}/${ids}?listings=100&entries=0`),
-        getJSON(`${UNI}/history/${encodeURIComponent(WORLD)}/${ids}?entriesWithin=${SALES_WINDOW_H * 3600}&entriesToReturn=999`)
-      ]);
-
+      // entries=1, not 0: with no sale entries requested, Universalis reports an
+      // empty board as lastUploadTime 0, indistinguishable from an item nobody has
+      // ever uploaded. Measured 2026-09-14 on Riviera Wardrobe: entries=0 gave 0,
+      // entries=1 gave the real time. The first eight days of stock rows carry
+      // that defect: 425 of 3,114 rows read lastUpload 0, every one an empty board.
+      const board = await getJSON(`${UNI}/${encodeURIComponent(WORLD)}/${ids}?listings=100&entries=1`);
       const boardItems = board.items || {};
-      const histItems  = hist.items  || {};
 
       for (const it of batch) {
         const b = boardItems[it.id];
         if (!b) { failed++; continue; }
+        const upload = b.lastUploadTime || 0;
+        const all = b.listings || [];
 
-        const listings = (b.listings || []).filter(l => !l.hq);
-        const units    = listings.reduce((a, l) => a + (l.quantity || 1), 0);
-        const sellers  = new Set(listings.map(l => l.retainerName).filter(Boolean)).size;
-        const prices   = listings.map(l => l.pricePerUnit).filter(p => p > 0).sort((a, b) => a - b);
+        // Stock totals stay as they always were: normal quality only, so the
+        // eight days recorded before the listings file began remain comparable.
+        const nq       = all.filter(l => !l.hq);
+        const units    = nq.reduce((a, l) => a + (l.quantity || 1), 0);
+        const sellers  = new Set(nq.map(l => l.retainerName).filter(Boolean)).size;
+        const prices   = nq.map(l => l.pricePerUnit).filter(p => p > 0).sort((a, b) => a - b);
 
         stockRows.push([
-          day, it.id, units, listings.length, sellers,
+          day, it.id, units, nq.length, sellers,
           prices[0] || "", prices[prices.length - 1] || "",
-          b.lastUploadTime || 0            // the check on whether this reading is fresh
+          upload                          // the check on whether this reading is fresh
         ]);
         fetched++;
 
-        const h = histItems[it.id];
-        for (const e of (h?.entries || [])) {
-          const key = `${e.timestamp}|${it.id}|${e.pricePerUnit}|${e.quantity}`;
-          if (known.has(key)) continue;
-          known.add(key);
-          saleRows.push([e.timestamp, it.id, e.pricePerUnit, e.quantity, e.hq ? 1 : 0]);
-          newSales++;
+        // The listings themselves, once per reading. No upload time means no
+        // player has ever opened this item with the uploader running; there is
+        // no reading to record.
+        if (!upload || recorded.has(`${it.id}|${upload}`)) continue;
+        recorded.add(`${it.id}|${upload}`);
+        newReadings++;
+        if (!all.length) {
+          emptyReadings++;
+          listingRows.push([upload, it.id, "", "", 0, 0, 0]);
+          continue;
+        }
+        for (const l of all) {
+          listingRows.push([upload, it.id, l.listingID || "", l.retainerName || "",
+                            l.pricePerUnit, l.quantity || 1, l.hq ? 1 : 0]);
         }
       }
     } catch (e) {
@@ -183,19 +221,17 @@ async function main() {
   // A run that got almost nothing is more likely a broken API than a dead market.
   // Better to write nothing than to record a day of phantom zeroes.
   if (fetched < items.length * 0.5) {
-    throw new Error(`only ${fetched}/${items.length} items priced — refusing to write a bad day`);
+    throw new Error(`only ${fetched}/${items.length} items read — refusing to write a bad day`);
   }
 
   appendCsv(stockFile,
     ["date", "itemId", "unitsListed", "listings", "sellers", "minPrice", "maxPrice", "lastUpload"],
     stockRows);
 
-  if (saleRows.length) {
-    saleRows.sort((a, b) => a[0] - b[0]);
-    appendCsv(salesFile, ["timestamp", "itemId", "pricePerUnit", "quantity", "hq"], saleRows);
-  }
+  if (listingRows.length) appendCsv(listingsFile(month), LISTING_HEADER, listingRows);
 
-  console.log(`wrote ${stockRows.length} stock rows, ${newSales} new sales, ${failed} items missed`);
+  console.log(`wrote ${stockRows.length} stock rows; ${newReadings} new readings ` +
+              `(${emptyReadings} with an empty board), ${listingRows.length} listing rows; ${failed} items missed`);
 }
 
 main().catch(e => { console.error("tracker failed:", e.message); process.exit(1); });
