@@ -109,7 +109,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.13.26.3</span></p>
+    <span class="stamp">v09.15.26.1</span></p>
 </header>
 
 <div class="panel">
@@ -129,6 +129,23 @@
       <label class="check" title="Sell as high quality. For any craft that can be HQ, its price, demand and supply come from HQ sales and HQ listings alone. Materials are unaffected: you buy whichever quality is cheapest. Crafts with no HQ version behave as normal."><input type="checkbox" id="hqonly"> HQ only</label></div>
     <div class="wide"><label class="field" for="mine">Your own retainers (counted as listed, never undercut)</label>
       <input type="text" id="mine" placeholder="Spicy-soy, Momo-mochi" value="Spicy-soy, Momo-mochi"></div>
+  </div>
+
+  <!-- Your own sales, copied from each retainer's Sale History in game. The
+       incoming-supply figure counts every sale on the board between two readings
+       as somebody else's listing that sold; these rows take yours back out. -->
+  <div class="sub" style="margin-top:20px;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600">Your sales</div>
+  <div class="hint" style="margin-top:0;margin-bottom:8px">From each retainer's Sale History window: the price as it shows there (after tax),
+    the buyer, and the date and time to the minute. Sales listed here are not counted as competitors' supply.</div>
+  <div class="tablewrap"><table id="ownSales"><thead><tr>
+    <th class="l">Price shown</th><th class="l">Qty</th><th class="l">Buyer</th><th class="l">Date and time</th><th></th>
+  </tr></thead><tbody id="ownSalesBody"></tbody></table></div>
+  <div class="row" style="margin-top:8px">
+    <button id="btnAddSale" class="secondary small" type="button">Add a sale</button>
+    <label class="check" for="owntax" style="padding:0;gap:8px;font-size:13px;color:var(--muted)"
+      title="The Sale History window shows what you received, after the market tax. The tool adds it back to match the sale against Universalis, which records what the buyer paid.">
+      Tax on those sales %<input type="number" id="owntax" value="3" min="0" max="25" style="width:64px;padding:4px 8px"></label>
+    <span class="status" id="ownSalesStatus"></span>
   </div>
   <div class="row">
     <button id="btnLoad">1 &nbsp;Load recipes</button>
@@ -173,10 +190,13 @@
     near the top of this file's code, marked MANUAL NOTES — anything added there gets tagged wherever
     it appears and pulled to the top of the material lists. Company Seal materials are still detected
     automatically, and those are reliable.</p>
-    <p><strong>Competitors listing during the week are not modelled.</strong> Only what is on the
-    board at scan time counts as competition. The safety margin exists to cover this: the tool
-    deliberately fills only part of the gap between weekly demand and what is listed, leaving a
-    shortage rather than closing it.</p>
+    <p><strong>Competitors listing during the week are measured, where there is a reading to measure
+    from.</strong> A daily tracker records every listing it sees. The tool compares the board now with
+    the board at a reading at least two weeks back: whatever is listed now that was not then, plus
+    whatever sold in between, was listed in between. Your own retainers' listings and the sales you
+    enter above are taken out, and the weekly rate is subtracted from the gap alongside what is
+    already listed. Items with no earlier reading are tagged and treated as before. The safety margin
+    still fills only part of what remains.</p>
     <p><strong>The market board never runs out.</strong> Your own world's listings are used
     first, cheapest first. When they run short, the remainder is priced at the same average on
     the assumption you travel to another world to buy them — which you can, anywhere in North
@@ -501,29 +521,36 @@ async function loadSeals() {
 // craft is priced, counted and demanded on HQ alone while the same item as a
 // material is untouched. Server-side filtering matters: the 20 cheapest of a
 // mixed list could be all NQ.
-async function loadMarket(world, ids, onProgress, hqIds) {
+// `fullIds` are the crafts being scanned. Those are fetched with every listing
+// on the board, not just the cheapest twenty, because incoming supply compares
+// today's count against the tracker's reading and the tracker records every
+// listing; counting twenty against twenty-five would read as a fall in supply.
+async function loadMarket(world, ids, onProgress, hqIds, fullIds) {
   const unique = [...new Set(ids)].filter(n => n > 1);
+  const full = fullIds || new Set();
   const out = new Map(), outHq = new Map(), w = encodeURIComponent(world);
   let done = 0;
   // Fewer items per request, because each now carries up to 100 listings.
   const batches = [
-    ...chunk(unique, 25).map(b => ({ ids: b, hq: false })),
-    ...chunk([...hqIds].filter(id => id > 1), 25).map(b => ({ ids: b, hq: true }))
+    ...chunk(unique.filter(id => !full.has(id)), 25).map(b => ({ ids: b, hq: false, n: LISTINGS })),
+    ...chunk(unique.filter(id => full.has(id)), 25).map(b => ({ ids: b, hq: false, n: ALL_LISTINGS })),
+    ...chunk([...hqIds].filter(id => id > 1), 25).map(b => ({ ids: b, hq: true, n: ALL_LISTINGS }))
   ];
   const total = batches.reduce((a, b) => a + b.ids.length, 0);
 
-  const fetchBatch = async ({ ids: batch, hq }) => {
+  const fetchBatch = async ({ ids: batch, hq, n }) => {
     // Universalis answers a one-item request in a different shape, so pad it.
     if (batch.length === 1) batch.push(batch[0] === 5057 ? 5058 : 5057);
     const det = await getJSON("https://universalis.app/api/v2/" + w + "/" + batch.join(",") +
-                              "?listings=" + LISTINGS + "&entries=200" + (hq ? "&hq=true" : ""));
+                              "?listings=" + n + "&entries=200" + (hq ? "&hq=true" : ""));
     const items = det.items || {};
     for (const k of Object.keys(items)) {
       const it = items[k], id = Number(k);
       (hq ? outHq : out).set(id, {
         hq,
         history: (it.recentHistory || []).filter(h => h.pricePerUnit > 0)
-        .map(h => ({ p: h.pricePerUnit, q: h.quantity || 1, t: h.timestamp || 0, hq: !!h.hq })),
+        .map(h => ({ p: h.pricePerUnit, q: h.quantity || 1, t: h.timestamp || 0, hq: !!h.hq,
+                     buyer: h.buyerName || "" })),
         // Your own retainers stay in the list, flagged. They count as supply —
         // ten already listed means ten fewer to make — but are never undercut
         // and cannot be bought from. priceOf and the ladder read the flag.
@@ -531,7 +558,7 @@ async function loadMarket(world, ids, onProgress, hqIds) {
         .map(l => ({ price: l.pricePerUnit, qty: l.quantity || 1, hq: !!l.hq,
                      who: l.retainerName || "", id: l.listingID || "",
                      mine: isMine(l.retainerName) })),
-        clipped: (it.listings || []).length >= LISTINGS,
+        clipped: (it.listings || []).length >= n,
         updated: it.lastUploadTime || 0 });
     }
   };
@@ -569,11 +596,14 @@ async function loadMarket(world, ids, onProgress, hqIds) {
 
 const ABSURD = 2.0;   // listings above this multiple of the real sale price are not competition
 
-// How many listings to fetch per item, cheapest first. Twenty is also the
-// crowding threshold: if the twentieth is still under the junk cutoff, there is
+// How many listings to fetch per material, cheapest first. Twenty is also the
+// crowding threshold for a craft: twenty or more real listings means there is
 // enough on the board already that the item is not worth entering. Shaun,
 // 2026-09-13. The material ladder is the same twenty.
 const LISTINGS = 20;
+// Crafts are fetched whole, so their listing count can be set against the
+// tracker's, which is also whole. Universalis' ceiling per request.
+const ALL_LISTINGS = 100;
 
 // How many sales the market price is taken from. The request asks Universalis for
 // up to 200 so that weekly demand has a long history to work with, but 200 sales
@@ -605,10 +635,10 @@ function priceOf(m, quality) {
   const real = raw.filter(l => l.mine || l.price <= med * ABSURD);
   const supply = real.reduce((a, l) => a + l.qty, 0);
   const mine = real.filter(l => l.mine).reduce((a, l) => a + l.qty, 0);
-  // Listings arrive cheapest first. If the last one we were given is still below
-  // the junk threshold there are more real listings beyond it, so `supply` is a
-  // floor rather than a count.
-  const crowded = !!m.clipped && raw.length > 0 && raw[raw.length - 1].price <= med * ABSURD;
+  // Twenty or more real listings is a crowded market. A craft is fetched whole,
+  // so this is a count; a material is fetched twenty deep, and if all twenty
+  // are real there are more beyond them, so for it `supply` is a floor.
+  const crowded = real.length >= LISTINGS;
   // Twenty listings from five retainers is a very different market from twenty
   // listings from twenty people. Count the people.
   const sellers = new Set(real.map(l => l.who).filter(Boolean)).size;
@@ -642,6 +672,109 @@ function ladderCost(id, units) {
     if (!left) break;
   }
   return { cost: cost + left * med, imported: left };
+}
+
+// ---------------------------------------------------------------------------
+// Listing history — where incoming supply is measured from.
+//
+// Universalis keeps no record of what was listed, only of what sold. So the
+// tracker (tracker.js, run daily by a GitHub Action) writes every listing it
+// sees to data/listings-YYYY-MM.csv, once per reading of each item, and the
+// page reads those files back at scan time.
+//
+// READINGS is the only code that knows the history is CSV files in this
+// repository. A database later replaces this one object; everything else
+// talks to it through two calls:
+//
+//   load(now)            fetch whatever covers the period. Never throws.
+//   readingsFor(itemId)  [{ at, listings: [{ who, price, qty, hq }] }],
+//                        oldest first. `at` is the Universalis upload time in
+//                        milliseconds, the same clock as MARKET's `updated`.
+// ---------------------------------------------------------------------------
+const READINGS = {
+  // Same origin first (GitHub Pages serves the repository), then the raw file
+  // on GitHub. A copy of the page opened from disk, or shown as a data: URL,
+  // cannot fetch beside itself at all, so it goes straight to GitHub.
+  urls: month => [
+    ...(/^https?:$/.test(location.protocol) ? ["data/listings-" + month + ".csv"] : []),
+    "https://raw.githubusercontent.com/Oozemaster/FFXIV_Crafting_Planner/main/data/listings-" + month + ".csv"],
+  byItem: new Map(),   // itemId -> Map(at -> listings[])
+  files: [],           // which months loaded, for the status line
+  count: 0,            // readings held
+
+  async load(now) {
+    this.byItem = new Map(); this.files = []; this.count = 0;
+    const d = new Date(now);
+    const months = [0, 1].map(back => {
+      const m = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - back, 1));
+      return m.toISOString().slice(0, 7);
+    });
+    for (const month of months) {
+      let text = null;
+      for (const url of this.urls(month)) {
+        try {
+          const r = await fetch(url, { cache: "no-store" });
+          if (r.ok) { text = await r.text(); break; }
+        } catch (e) { /* try the next address */ }
+      }
+      if (text == null) continue;      // a month with no file yet is normal
+      this.files.push(month);
+      // A reading is whole within one file, so one seen twice — the same file
+      // served for two months, say — replaces rather than adds.
+      for (const [id, byAt] of this.parse(text)) {
+        let mine = this.byItem.get(id);
+        if (!mine) { mine = new Map(); this.byItem.set(id, mine); }
+        for (const [at, ls] of byAt) mine.set(at, ls);
+      }
+    }
+    for (const m of this.byItem.values()) this.count += m.size;
+  },
+
+  // lastUpload, itemId, listingID, retainerName, pricePerUnit, quantity, hq.
+  // A reading that found the board empty is one row with a blank listingID and
+  // quantity 0: the reading exists, the board had nothing on it.
+  parse(text) {
+    const byItem = new Map();
+    const lines = text.split(/\r?\n/);
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line) continue;
+      const f = csvFields(line);
+      const at = +f[0], id = +f[1];
+      if (!at || !id) continue;
+      let byAt = byItem.get(id);
+      if (!byAt) { byAt = new Map(); byItem.set(id, byAt); }
+      let ls = byAt.get(at);
+      if (!ls) { ls = []; byAt.set(at, ls); }
+      const qty = +f[5] || 0;
+      if (f[2] && qty > 0) ls.push({ who: f[3] || "", price: +f[4] || 0, qty, hq: f[6] === "1" });
+    }
+    return byItem;
+  },
+
+  readingsFor(id) {
+    const byAt = this.byItem.get(id);
+    if (!byAt) return [];
+    return [...byAt.entries()].sort((a, b) => a[0] - b[0]).map(([at, listings]) => ({ at, listings }));
+  }
+};
+
+// One CSV line into fields. Retainer names never contain commas, but the
+// tracker quotes anything that would need it, so read quotes properly.
+function csvFields(line) {
+  const out = []; let cur = "", q = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (q) {
+      if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      else if (c === '"') q = false;
+      else cur += c;
+    } else if (c === '"') q = true;
+    else if (c === ",") { out.push(cur); cur = ""; }
+    else cur += c;
+  }
+  out.push(cur);
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -722,17 +855,93 @@ function weeklyDemand(history, nowSec) {
   return den ? num / den : 0;
 }
 
+// Incoming supply: what competitors list in a week, measured. Shaun's formula,
+// 2026-09-14:
+//
+//   IncomingSupply = max(0, NewListings - PreviousListings + Purchases) / weeks
+//
+//   PreviousListings  units on the board at the tracker's reading at least
+//                     INFLOW_DAYS before the live reading, or the oldest reading
+//                     it has if none is that old; your retainers' listings removed
+//   NewListings       units on the board at the live reading, yours removed
+//   Purchases         units sold between the two readings, per Universalis, less
+//                     the sales you entered as your own
+//   weeks             the time between the two readings' upload times, never
+//                     less than one week
+//
+// Whatever is on the board now that was not there before, plus whatever sold in
+// between, had to be listed in between. Your own listings and sales come out so
+// you are not counted as your own competitor. The result is floored at zero:
+// a negative means a listing was pulled, or a sale happened that Universalis
+// never saw, and either way nothing new was listed.
+//
+// Both readings are counted whole — every listing at any price, which is why
+// crafts are fetched with ALL_LISTINGS — and on the quality the craft is sold
+// as. The period ends at the live reading's upload time, not at the scan,
+// because Universalis knows nothing after it.
+const INFLOW_DAYS = 14;
+
+function incomingSupply(m, quality, readings, ownSales, ownTax) {
+  const at = m.updated;
+  const before = readings.filter(r => r.at < at);
+  if (!before.length) return { known: false, why: readings.length ? "same reading" : "no reading" };
+  const old = before.filter(r => r.at <= at - INFLOW_DAYS * DAY);
+  const prev = old.length ? old[old.length - 1] : before[0];
+
+  const units = ls => ls.filter(l => ofQuality(quality, l) && !isMine(l.who))
+                        .reduce((a, l) => a + l.qty, 0);
+  const prevUnits = units(prev.listings);
+  const newUnits  = units(m.listings || []);
+
+  const sales = (m.history || []).filter(h => ofQuality(quality, h) &&
+                                              h.t * 1000 > prev.at && h.t * 1000 <= at);
+  // Two hundred sales is the request limit. If the oldest of them is newer
+  // than the previous reading, sales in the period were cut off and Purchases
+  // is a floor.
+  const oldest = (m.history || []).reduce((a, h) => Math.min(a, h.t * 1000), Infinity);
+  const truncated = (m.history || []).length >= 200 && oldest > prev.at;
+  const own = removeOwnSales(sales, ownSales, ownTax);
+  const bought = own.remaining.reduce((a, h) => a + h.q, 0);
+
+  const raw = newUnits - prevUnits + bought;
+  const spanDays = (at - prev.at) / DAY;
+  const weeks = Math.max(1, spanDays / 7);
+  return { known: true, perWeek: Math.max(0, raw) / weeks, prev: prevUnits, next: newUnits,
+           bought, own: own.matched, negative: raw < 0, from: prev.at, spanDays, truncated,
+           short: spanDays < INFLOW_DAYS };
+}
+
+// Your own sales, copied from the Sale History window in game, matched against
+// Universalis' record and taken out. The window shows the price after tax, to
+// the minute; Universalis has the price the buyer paid, to the second, and the
+// buyer's name. So a sale matches on quantity, on the minute, on the buyer if
+// one was typed, and on price once the tax is added back — within a gil,
+// because 59,999 and 60,000 both show as 58,200 at 3%. Each row you enter
+// takes out one sale at most.
+function removeOwnSales(sales, ownSales, tax) {
+  const used = new Set();
+  let matched = 0;
+  for (const o of (ownSales || [])) {
+    const i = sales.findIndex((s, k) => !used.has(k) &&
+      s.q === o.qty &&
+      Math.floor(s.t / 60) === Math.floor(o.time / 60000) &&
+      (!o.buyer || s.buyer.trim().toLowerCase() === o.buyer.trim().toLowerCase()) &&
+      Math.abs(s.p * (1 - tax) - o.price) <= 1);
+    if (i >= 0) { used.add(i); matched += sales[i].q; }
+  }
+  return { matched, remaining: sales.filter((s, k) => !used.has(k)) };
+}
+
 // Shortage: the most you should make. The gap between what sells each week and
-// what is already listed, less a safety margin, rounded down once at the end.
-// The margin covers everything the model does not see — chiefly competitors
-// listing after you, but also demand moving.
+// what is already listed or about to be, less a safety margin, rounded down
+// once at the end. The margin covers what the model still does not see.
 //
-//   shortage = floor((demand - listed) x (1 - margin))
+//   shortage = floor((demand - listed - incoming) x (1 - margin))
 //
-// Shaun's formula, 2026-09-13. An incoming-supply term will be subtracted
-// alongside `listed` once the tracker can measure it.
-function safeUnits(demand, supply, margin) {
-  return Math.max(0, Math.floor(Math.max(0, demand - supply) * (1 - margin)));
+// Shaun's formulas, 2026-09-13 and 2026-09-14. `incoming` is 0 for an item
+// with no earlier reading, and the row says so.
+function safeUnits(demand, supply, incoming, margin) {
+  return Math.max(0, Math.floor(Math.max(0, demand - supply - (incoming || 0)) * (1 - margin)));
 }
 
 function buildCandidates(pool, cfg) {
@@ -768,9 +977,14 @@ function buildCandidates(pool, cfg) {
       canGather: GATHERABLE.has(x.id), craftable: BY_ITEM.has(x.id),
       selfSource: selfSourced(x.name), seal: SEALS.get(x.id) || 0 }));
 
+    // Incoming supply on the same quality as price, demand and supply.
+    const inflow = incomingSupply(m, hqRec ? "hq" : "nq", READINGS.readingsFor(r.itemId),
+                                  cfg.ownSales, cfg.ownTax);
+
     // Nothing caps quantity any more. Every world in the region is reachable, so
     // a material is never unobtainable — only dearer, and the ladder handles that.
     rows.push({ ...r, ...p, demand, cost, margin, parts,
+      inflow: inflow.known ? inflow.perWeek : 0, inflowInfo: inflow,
       hasSeal: parts.some(x => x.seal),
       // A part with no market price is in the cost at zero. Say so.
       unpriced: parts.some(x => !x.unit),
@@ -796,7 +1010,7 @@ function allocate(rows, totalSlots, maxPer, margin, caps) {
   let left = totalSlots;
   for (const r of rows.slice().sort((a, b) => b.margin - a.margin)) {
     if (!left) break;
-    let k = Math.min(left, maxPer, safeUnits(r.demand, r.supply, margin));
+    let k = Math.min(left, maxPer, safeUnits(r.demand, r.supply, r.inflow, margin));
     if (caps && caps.has(r.itemId)) k = Math.min(k, caps.get(r.itemId));
     if (k > 0) { out.push({ row: r, k }); left -= k; }
   }
@@ -891,6 +1105,30 @@ function shortTag(short, world) {
   const label = short.slice(0, 2).map(s => s.name).join(", ") + (short.length > 2 ? " +" + (short.length - 2) : "");
   return '<span class="tag flag" title="' + esc(lines.join("\n")) + '">short: ' + esc(label) + '</span>';
 }
+
+// The incoming-supply figure explained in one tooltip: the two readings, what
+// each counted, what sold between, what was yours.
+function inflowNote(r) {
+  const i = r.inflowInfo;
+  if (!i) return "Saved before incoming supply was measured.";
+  if (!i.known) return i.why === "same reading"
+    ? "The only reading the tracker has of this item is the one Universalis is showing now, so there is nothing earlier to compare it with."
+    : "The tracker has no earlier reading of this item, so what others list in a week is not measured and is taken as 0.";
+  return "Others listed about " + i.perWeek.toFixed(1) + " a week. Over " + Math.round(i.spanDays) +
+    " days, from the tracker's reading of " + new Date(i.from).toLocaleString() + ": " +
+    i.next + " listed now by others against " + i.prev + " then, and " + i.bought + " sold in between" +
+    (i.own ? " after taking out " + i.own + " of yours" : "") + "." +
+    (i.negative ? " That comes out negative — a listing was pulled, or a sale Universalis never saw — so it counts as 0." : "") +
+    (i.short ? " Under " + INFLOW_DAYS + " days of history, so the rate is spread over a full week." : "") +
+    (i.truncated ? " Universalis returned its limit of 200 sales and the oldest is newer than the reading, so the sold count is a floor." : "");
+}
+const inflowTag = r => {
+  const i = r.inflowInfo;
+  if (!i) return "";
+  if (!i.known) return '<span class="tag flag" title="' + esc(inflowNote(r)) + '">inflow unmeasured</span>';
+  return '<span class="tag' + (i.truncated || i.short ? ' flag' : '') + '" title="' + esc(inflowNote(r)) + '">' +
+    i.perWeek.toFixed(1) + '/wk incoming</span>';
+};
 
 // Order and priority-band a bundle by its real, ladder-walked value.
 function bandFor(p) {
@@ -1059,6 +1297,7 @@ function render() {
           'what is needed beyond them. They are never undercut and cannot be bought from.">' +
           r.mine + ' yours listed</span>';
         if (r.hasSeal) tags += '<span class="tag seal">GC seal mats</span>';
+        tags += inflowTag(r);
         if (tm.unpriced) tags += '<span class="tag flag" title="' +
           'One of the materials has no sale history on this world, so it is costed at zero on the ' +
           'assumption that it cannot be sold either. If you would have to buy it, the profit shown is too high.">material unpriced</span>';
@@ -1071,9 +1310,10 @@ function render() {
           '<td class="l"><span class="pri ' + cls + '">' + label + '</span></td>' +
           '<td class="l">' + esc(r.job) + '</td><td>' + r.level + '</td><td>' + gil(r.listAt) + '</td>' +
           '<td title="' + r.supply + ' units listed now by ' + (r.sellers || 0) + ' seller(s), ' +
+            (r.inflowInfo && r.inflowInfo.known ? 'plus ' + r.inflow.toFixed(1) + ' a week being listed by others, ' : '') +
             'against weekly demand of ' + r.demand.toFixed(1) + '. Gap of ' +
-            Math.max(0, r.demand - r.supply).toFixed(1) + ', of which at most ' +
-            safeUnits(r.demand, r.supply, LAST.cfg.margin == null ? 0.2 : LAST.cfg.margin) +
+            Math.max(0, r.demand - r.supply - (r.inflow || 0)).toFixed(1) + ', of which at most ' +
+            safeUnits(r.demand, r.supply, r.inflow, LAST.cfg.margin == null ? 0.2 : LAST.cfg.margin) +
             ' should be filled after the safety margin.">' + r.supply + (r.clipped ? '+' : '') +
             ' <span style="color:var(--muted)">vs ' + r.demand.toFixed(0) + '/wk &middot; ' +
             (r.sellers || 0) + ' seller' + ((r.sellers || 0) === 1 ? '' : 's') + '</span></td>' +
@@ -1099,6 +1339,7 @@ function render() {
       (a.margin * Math.min(1, a.demand / (a.supply + 1))));
     html += '<div class="tablewrap"><table><thead><tr><th class="l">Item</th><th class="l">Job</th>' +
       '<th>Lvl</th><th>Sells for</th><th>Sales/wk</th><th>Units listed</th>' +
+      '<th title="Units a week that other sellers list, measured between the tracker\'s reading at least two weeks back and the board now. Blank where there is no earlier reading.">Listed/wk</th>' +
       '<th title="Material cost per unit at the market price of each ingredient">Mats each</th>' +
       '<th title="List price after tax, less the materials">Profit each</th>' +
       '</tr></thead><tbody>';
@@ -1114,6 +1355,8 @@ function render() {
         (r.junk ? ' <span style="color:var(--muted)" title="' + r.junk +
           ' listing(s) priced more than 2x what this item actually sells for. Treated as decoration, not competition.">(+' +
           r.junk + ' overpriced)</span>' : '') + '</td>' +
+        '<td title="' + esc(inflowNote(r)) + '">' +
+          (r.inflowInfo && r.inflowInfo.known ? r.inflow.toFixed(1) : '<span style="color:var(--muted)">—</span>') + '</td>' +
         '<td>' + gil(r.cost) + '</td><td>' + gil(r.margin) + '</td></tr>';
     html += '</tbody></table></div>';
   }
@@ -1161,6 +1404,73 @@ function render() {
 }
 
 // ---------------------------------------------------------------------------
+// Your sales
+//
+// One row per sale from the Sale History window: price as shown, quantity,
+// buyer, date and time to the minute. Kept in the session file and, where the
+// browser allows, remembered between visits. A sale stays useful for as long
+// as its period is inside a reading pair, so nothing is expired here.
+// ---------------------------------------------------------------------------
+const OWN_SALES_KEY = "ffxiv-planner-own-sales";
+
+// datetime-local wants local time as YYYY-MM-DDTHH:MM; the game shows local time.
+const localStamp = ms => {
+  const d = new Date(ms), p = n => String(n).padStart(2, "0");
+  return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + "T" + p(d.getHours()) + ":" + p(d.getMinutes());
+};
+
+function addOwnSale(s) {
+  s = s || {};
+  const tr = document.createElement("tr");
+  tr.innerHTML =
+    '<td class="l"><input type="number" min="0" step="1" data-f="price" placeholder="57,667" style="width:120px" value="' + (s.price != null ? esc(s.price) : "") + '"></td>' +
+    '<td class="l"><input type="number" min="1" step="1" data-f="qty" value="' + (s.qty || 1) + '" style="width:64px"></td>' +
+    '<td class="l"><input type="text" data-f="buyer" placeholder="Katsu Pendragon" style="width:190px" value="' + esc(s.buyer || "") + '"></td>' +
+    '<td class="l"><input type="datetime-local" data-f="time" style="width:auto" value="' + (s.time ? localStamp(s.time) : "") + '"></td>' +
+    '<td><button type="button" class="secondary small" data-del title="Remove this row">&times;</button></td>';
+  tr.querySelector("[data-del]").onclick = () => { tr.remove(); rememberOwnSales(); };
+  tr.querySelectorAll("input").forEach(i => i.onchange = rememberOwnSales);
+  $("ownSalesBody").appendChild(tr);
+  return tr;
+}
+
+// Rows with a price and a time; the rest are ignored, not errors.
+function readOwnSales() {
+  const out = [];
+  for (const tr of $("ownSalesBody").querySelectorAll("tr")) {
+    const v = f => tr.querySelector('[data-f="' + f + '"]').value;
+    const price = +v("price"), time = v("time") ? new Date(v("time")).getTime() : 0;
+    if (!(price > 0) || !time) continue;
+    out.push({ price, qty: Math.max(1, +v("qty") || 1), buyer: v("buyer").trim(), time });
+  }
+  return out;
+}
+
+function setOwnSales(list, tax) {
+  $("ownSalesBody").innerHTML = "";
+  for (const s of (list || [])) addOwnSale(s);
+  if (tax != null) $("owntax").value = Math.round(tax * 100);
+}
+
+// The browser forbids localStorage for a page opened as a data: URL, and a
+// private window may refuse it. Either way the session file still carries it.
+function rememberOwnSales() {
+  const sales = readOwnSales();
+  $("ownSalesStatus").textContent = sales.length ? sales.length + " sale" + (sales.length > 1 ? "s" : "") + " entered" : "";
+  try { localStorage.setItem(OWN_SALES_KEY, JSON.stringify({ sales, tax: $("owntax").value })); } catch (e) {}
+}
+function recallOwnSales() {
+  try {
+    const d = JSON.parse(localStorage.getItem(OWN_SALES_KEY) || "null");
+    if (d && Array.isArray(d.sales)) { setOwnSales(d.sales); if (d.tax !== "" && d.tax != null) $("owntax").value = d.tax; }
+  } catch (e) {}
+  rememberOwnSales();
+}
+$("btnAddSale").onclick = () => { addOwnSale().querySelector("input").focus(); };
+$("owntax").onchange = rememberOwnSales;
+recallOwnSales();
+
+// ---------------------------------------------------------------------------
 // Session files
 //
 // Saving three tallies was useless — reopening the page threw away the scan
@@ -1173,8 +1483,10 @@ function render() {
 
 // Format 3 (v09.13.26.1) carries one profit figure per row. Format 2 carried
 // one per mode; its "buy" figure was computed the same way, so old files are
-// converted losslessly on load.
-const FORMAT = 3;
+// converted losslessly on load. Format 4 (v09.15.26.1) adds incoming supply to
+// each row and your own sales to the settings; a format 3 file loads with
+// incoming supply unknown and no sales, which the rows say.
+const FORMAT = 4;
 
 function collectIds(rows) {
   const ids = new Set();
@@ -1222,6 +1534,7 @@ function applySession(d) {
   for (const r of (d.rows || [])) {
     if (r.margin && typeof r.margin === "object") { r.margin = r.margin.buy; r.cost = r.cost.buy; }
     if (r.unpriced == null) r.unpriced = (r.parts || []).some(x => !x.unit);
+    if (r.inflow == null) r.inflow = 0;              // format 3: never measured
   }
 
   const c = d.cfg || {};
@@ -1236,6 +1549,7 @@ function applySession(d) {
   if (c.minSales != null) $("minsales").value = c.minSales;
   if (c.margin != null) $("margin").value = Math.round(c.margin * 100);
   $("hqonly").checked = !!c.hq;
+  if (c.ownSales) { setOwnSales(c.ownSales, c.ownTax); rememberOwnSales(); }
 
   // Show the categories this scan used, so the page reads consistently.
   const cats = d.categories || [];
@@ -1382,7 +1696,10 @@ $("btnScan").onclick = async () => {
       minSales: +$("minsales").value || 0,
       margin: (+$("margin").value >= 0 ? +$("margin").value : 20) / 100,
       hq: $("hqonly").checked,
-      mine: $("mine").value.trim() };
+      mine: $("mine").value.trim(),
+      // Your own sales and the tax the Sale History window took off them.
+      ownSales: readOwnSales(),
+      ownTax: ($("owntax").value.trim() === "" || isNaN(+$("owntax").value) ? 3 : +$("owntax").value) / 100 };
 
     // Must happen before anything is fetched: loadMarket drops these listings as
     // it reads them, so the set has to be in place first.
@@ -1418,12 +1735,17 @@ $("btnScan").onclick = async () => {
     // and a craft with no HQ version behaves as normal.
     const hqIds = cfg.hq ? new Set(pool.map(r => r.itemId).filter(id => CAN_HQ.has(id))) : new Set();
 
+    // The tracker's listing history, for incoming supply. Two small files; a
+    // page opened from disk falls back to the copies on GitHub.
+    setStatus("Reading the listing history…");
+    await READINGS.load(Date.now());
+
     setBar(0);
     setStatus("Pricing " + ids.size + " items on " + cfg.world +
               (hqIds.size ? ", plus " + hqIds.size + " crafts as HQ" : "") + "…");
     const res = await loadMarket(cfg.world, [...ids], (d, t) => {
       setBar(d / t); setStatus("Pricing on " + cfg.world + "… " + d + " / " + t);
-    }, hqIds);
+    }, hqIds, new Set(pool.map(r => r.itemId)));
     MARKET = res.market; HQMARKET = res.hqMarket;
     PRICE = new Map(); LADDER = new Map();
     for (const [id, m] of MARKET) {
@@ -1469,6 +1791,20 @@ $("btnScan").onclick = async () => {
     // the recipes in the ticked categories, `res.total` is those plus every
     // material in their trees, all of which need a price.
     let msg = rows.length + " of " + pool.length + " recipes passed the filters.";
+    // Incoming supply: how much of the result rests on a measurement.
+    const measured = rows.filter(r => r.inflowInfo && r.inflowInfo.known);
+    if (!READINGS.files.length) {
+      msg += "  No listing history was found (the tracker has not written one yet, or it could not be " +
+             "fetched), so incoming supply is 0 for every item and each is tagged.";
+    } else {
+      const ownUsed = measured.reduce((a, r) => a + (r.inflowInfo.own || 0), 0);
+      const earliest = measured.length ? Math.min(...measured.map(r => r.inflowInfo.from)) : 0;
+      msg += "  Incoming supply measured for " + measured.length + " of " + rows.length +
+        " (listing history: " + READINGS.count + " readings" +
+        (earliest ? ", earliest " + new Date(earliest).toLocaleDateString() : "") + ")" +
+        (cfg.ownSales.length ? "; " + ownUsed + " of your " + cfg.ownSales.length +
+          " entered sale" + (cfg.ownSales.length > 1 ? "s" : "") + " matched a recorded sale" : "") + ".";
+    }
     if (mine) msg += "  " + mine + " material" + (mine > 1 ? "s" : "") +
       " marked as self-supplied, so no market limit applies to " +
       (mine > 1 ? "them" : "it") + ".";

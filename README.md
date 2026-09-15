@@ -6,11 +6,13 @@ people can craft without flooding the same items.
 **Use:** open the page, press **Load recipes**, then **Scan the market**. Claim a bundle
 by number in Discord, craft it, list it.
 
-**This document describes the tool as it is built today.** The shortage model designed on
-2026-09-06 is not implemented — see [Designed but not built](#designed-but-not-built).
+**This document describes the tool as it is built today.** The incoming-supply term was
+built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older design of
+2026-09-06 is kept under [Designed but not built](#designed-but-not-built) for the parts
+of it that remain unbuilt.
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.13.26.3`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.15.26.1`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)
@@ -31,6 +33,14 @@ vendor prices, what is gatherable. Changes only when Square Enix patches the gam
 **Universalis** — the market board. Players run an uploader that reports what they view,
 so Universalis knows whatever somebody last looked at. This is the data that can be stale
 or absent.
+
+**The tracker's listing history** — `data/listings-YYYY-MM.csv` in this repository, written
+daily by `tracker.js` (see Tracker files). The only record anywhere of what was *listed*, as
+opposed to sold. The page fetches this month's and last month's file at scan time: from
+its own address on GitHub Pages, or from the raw file on GitHub when the page was opened
+from disk. Everything the page knows about these files is in one object, `READINGS`, with
+two calls — `load()` and `readingsFor(itemId)` — so a database could replace the files
+later without touching the calculations.
 
 ### Universalis fields we ignore
 
@@ -96,7 +106,7 @@ type column says which.
 | Sale history fetched | Last **200 sales** per item, any quality | Count | Feeds both the market price and weekly demand. Deliberately a count, not a period: a fast mover's 200 sales may span three weeks and a slow one's two years. Measured 2026-09-13: Wooden Loft 2.8 weeks, Wine Barrel 8.1, Masonwork Interior Wall 15, Riviera Wardrobe 75. Universalis would return up to 999, reaching about 201 weeks back; 200 was kept to limit request size. |
 | Market price | Last **40 sales** of those, of the quality being priced (see Quality) | Count | Deliberate. The last 40 sales are what the item is selling for now, regardless of how long they took. |
 | Weekly demand bands | **0-4 weeks at 50%**, **4-12 weeks at 30%**, **older at 20%** | Duration | Recent weeks count more without one quiet week dominating. All qualities count. |
-| Listings fetched | Cheapest **20 listings** per item | Count | Competition depth and the material price ladder. Universalis returns listings cheapest first, so these are the only ones competing with you. Both qualities are kept and flagged; a craft counts only the quality it is sold as (see Quality). Your own retainers' listings are kept and flagged. |
+| Listings fetched | Cheapest **20 listings** per material; **up to 100** (every listing) per craft | Count | Competition depth and the material price ladder. Universalis returns listings cheapest first, so the cheapest twenty are the only ones competing with you. A craft is fetched whole so its live count can be set against the tracker's reading (section 6a). Both qualities are kept and flagged; a craft counts only the quality it is sold as (see Quality). Your own retainers' listings are kept and flagged. |
 | Price ladder retained | Cheapest **20** real listings of either quality, your own excluded | Count | Material cost calculation. |
 | Staleness cutoff | **180 days** | Duration | Items whose last upload is older are dropped entirely. |
 | Supply-age warning | **24 hours** | Duration | Items whose last upload is older than this are kept, but tagged with the age of the reading, because the supply count is that old. |
@@ -252,10 +262,10 @@ bought from (section 4). The row is tagged "N yours listed".
 tagged "supply N old" — the supply figure is from that moment and listings may have
 appeared since. Over 7 days the tag reads "stale".
 
-**Items with 20 or more real listings are dropped entirely.** Only the cheapest 20
-listings are fetched. If the 20th is still below the junk cutoff there are more beyond it
-that we cannot see, so `supply` would be a floor rather than a count — and 20 already
-ahead of you is not a market worth entering.
+**Items with 20 or more real listings are dropped entirely.** Twenty already ahead of
+you is not a market worth entering. Since 2026-09-15 a craft is fetched whole (up to 100
+listings), so the count is exact; a material is fetched twenty deep, and if all twenty are
+real there are more beyond them, so for it `supply` is a floor.
 
 **Example — Cobalt Ingot.** 40 listings from 5 distinct retainers, 19 held by one of
 them.
@@ -369,12 +379,64 @@ At the default 20%:
 | 7.6 | 0 | 7.6 | 6 |
 | 8 | 9 | 0 | 0 |
 
-An item with more listed than it sells in a week gets nothing. An incoming-supply term
-will be subtracted alongside `supply` once the tracker can measure it.
+An item with more listed than it sells in a week gets nothing.
 
-The margin covers everything the model cannot see, chiefly competitors listing after you.
-It leaves a shortage open rather than closing it, on the reasoning that the marginal
-seller is the one who gets undercut.
+Since 2026-09-15 the formula also subtracts what other sellers list in a week, measured
+(section 6a):
+
+```
+shortage = floor((weeklyDemand - supply - incomingSupply) x (1 - safetyMargin))
+```
+
+For an item with no earlier reading to measure from, `incomingSupply` is 0 and the row is
+tagged "inflow unmeasured", so it comes out exactly as it did before.
+
+The margin covers everything the model still cannot see. It leaves a shortage open rather
+than closing it, on the reasoning that the marginal seller is the one who gets undercut.
+
+### 6a. Incoming supply
+
+What other sellers list in a week. Shaun's formula, 2026-09-14.
+
+```
+incomingSupply = max(0, newListings - previousListings + purchases) / weeks
+```
+
+| Term | Meaning |
+|---|---|
+| `previousListings` | Units on the board at the tracker's reading at least **14 days** before the live reading — the most recent such reading — or the oldest reading the tracker has if none is that old. Your own retainers' listings removed. |
+| `newListings` | Units on the board at the live reading, your own removed. Every listing at any price: the tracker records them all, so the live count must too, which is why crafts are fetched with up to 100 listings rather than the cheapest 20. |
+| `purchases` | Units sold between the two readings' upload times, from Universalis' sale history, less the sales you entered as your own (below). |
+| `weeks` | The time between the two upload times, never less than one week. |
+
+Whatever is on the board now that was not there before, plus whatever sold in between,
+had to be listed in between. Your own listings and sales come out so you are not counted
+as your own competitor. The result is floored at zero: a negative means a listing was
+pulled, or a sale happened that Universalis never recorded, and either way nothing new was
+listed. Both readings are counted on the quality the craft is sold as (see Quality). The
+period ends at the live reading's upload time, not at the moment of the scan, because
+Universalis knows nothing after it.
+
+**Your own sales.** The setup panel has a table for them, copied from each retainer's Sale
+History window in game: the price as shown there, quantity, buyer, and date and time. The
+window shows the price *after* tax, to the minute; Universalis records the price the buyer
+paid, to the second, with the buyer's name. So each row is matched against one recorded
+sale on quantity, on the minute, on the buyer if one was typed, and on price once the tax
+is added back (the "Tax on those sales" field, default 3%, which is what Shaun's sales
+clear at) — within one gil, because 59,999 and 60,000 both show as 58,200 at 3%. Rows are
+kept in the session file and, where the browser allows, remembered between visits. The
+status line after a scan says how many rows matched a recorded sale.
+
+**Fixture** (verify.js, Test Wall): live reading 3 days old with two rival units and one
+of yours; tracker readings 30, 20 and 10 days back, the 20-day one holding one rival unit
+and one of yours; 29 sales in the period, one of them entered as yours. Previous 1, new 2,
+purchases 28, 17 days: **11.9 a week**, and the 20-day reading is the one used.
+
+**What to expect.** The tracker began writing listings on 2026-09-15, so the earliest a
+reading can be 14 days old is 2026-09-29; until then the oldest reading is used and the
+rate is spread over a full week. Refresh is sparse — 27% of items on a typical day, 32%
+never refreshed in the first eight days — so an item can go weeks between readings, and a
+newly refreshed item has no earlier reading at all. Both cases are tagged.
 
 ### 7. Profit and ranking
 
@@ -424,7 +486,7 @@ Judgment calls, not game rules.
 | Setting | Current | Effect |
 |---|---|---|
 | Junk listing cutoff | 2.0x market price | Listings above this multiple are excluded from competition. |
-| Listings fetched | Cheapest 20 | Also the point at which an item counts as too crowded to enter. |
+| Listings fetched | Cheapest 20 per material | Twenty or more real listings is also the point at which a craft counts as too crowded to enter. |
 | Safety margin | 20% | Share of the demand-minus-supply gap deliberately left unfilled. Covers competitors and anything else the model does not see. |
 | Max of one item | 20 | Upper limit on units of a single item within one bundle. |
 | Minimum sale price | 5,000 gil | Items below this are excluded. |
@@ -441,6 +503,9 @@ Judgment calls, not game rules.
 | Recipe expansion depth | 6 levels | How far the raw material tree is followed. |
 | Unpriced material | 0 gil | A material with no sale history costs nothing. Rule of 2026-09-13. |
 | Failed request retry | Once, after 3 seconds | A Universalis request that fails three times in a row is tried once more at the end of the scan. |
+| Incoming-supply gap | 14 days | The previous reading is the most recent one at least this old. Shorter periods read one seller's batch as a weekly rate. |
+| Listings fetched per craft | Up to 100 | Universalis' ceiling. Crafts are counted whole so the live count matches the tracker's. |
+| Tax on your own sales | 3% | What the Sale History window took off, added back to match your sales against Universalis. Separate from the 10% used for profit. |
 
 Fixed by the game: 10% sales tax; 40 listing slots per character.
 
@@ -481,10 +546,17 @@ Every constant above is unvalidated.
 
 ## Known defects
 
-**Competitors listing during the week are not modelled.** Only what is on the board at
-scan time counts. Anyone listing after you takes sales the tool expected you to make, so
-every estimate is an upper bound. The shortage model will supply a measured figure; until
-then the tool is upfront about not tracking this rather than guessing at it.
+**Competitors listing during the week are measured only where the tracker has an earlier
+reading.** Items without one are tagged and treated as before: an upper bound. Until the
+tracker has run for two weeks on the listings file (2026-09-29), every measured rate is
+over a shorter period than intended and spread over a full week.
+
+**A row in Your sales carries no item name**, so it matches any item's sale with the same
+buyer, minute, quantity and price. In practice one purchase is one item, but two crafts
+sharing a sale record would both take the row out.
+
+**Purchases between two readings are a floor for a fast seller.** The 200-sale history may
+not reach back to the previous reading; the row is tagged when that happens.
 
 **Sale history is capped at 200 records per item.** For furnishings that spans months. For
 a fast-moving material it may cover only days, so demand for those is measured over a

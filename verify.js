@@ -47,8 +47,35 @@ const RECIPES = [
 // Median of all 60 = 80,000 only if the window is 40 -- over all 60 it is also
 // 80,000, so make the old block big enough to move it: 45 old at 20,000.
 const hist = [];
-for (let i = 0; i < 40; i++) hist.push({ hq: false, pricePerUnit: 80000, quantity: 1, timestamp: NOW - i * 3600 });
-for (let i = 0; i < 45; i++) hist.push({ hq: false, pricePerUnit: 20000, quantity: 1, timestamp: NOW - 40 * 3600 - i * 7200 });
+for (let i = 0; i < 40; i++) hist.push({ hq: false, pricePerUnit: 80000, quantity: 1, timestamp: NOW - i * 3600, buyerName: "New-" + i });
+for (let i = 0; i < 45; i++) hist.push({ hq: false, pricePerUnit: 20000, quantity: 1, timestamp: NOW - 40 * 3600 - i * 7200, buyerName: "Old-" + i });
+// The Rug's copy has its own buyers, so the one sale entered as Shaun's own
+// below can only match the Wall's record, as a real sale could only match one item.
+const rugHist = hist.map(h => ({ ...h, buyerName: "Rug-" + h.buyerName }));
+
+// Incoming supply. The Wall's live reading is 3 days old; the tracker holds
+// readings 30, 20 and 10 days back, and the rule must pick 20 (the most recent
+// at least 14 days before the live one). At 20 days the board held Rival-one
+// and one of Shaun's own, so PreviousListings = 1. Live: Rival-one, Rival-two
+// and his own again, so NewListings = 2. Sales between 20 and 3 days back: the
+// 20,000 block aged 72h or more, i = 16..44, 29 sales; one of them (Old-20,
+// 80 hours old, shown as 19,400 after 3% tax) is entered as his own below, so
+// Purchases = 28 and inflow = (2 - 1 + 28) / (17 / 7) = 11.94 a week.
+// The Rug has one reading 15 days back that found the board empty: 4 listed now,
+// 85 sold since, inflow = 89 / (15 / 7) = 41.53 a week.
+const ms = d => (NOW - d * DAY) * 1000;
+const LISTINGS_CSV = [
+  "lastUpload,itemId,listingID,retainerName,pricePerUnit,quantity,hq",
+  ms(30) + ",9001,L1,Rival-one,95000,1,0",
+  ms(30) + ",9001,L8,Rival-nine,95000,1,0",
+  ms(20) + ",9001,L1,Rival-one,95000,1,0",
+  ms(20) + ",9001,L9,Spicy-soy,90000,1,0",
+  ms(10) + ",9001,L1,Rival-one,95000,1,0",
+  ms(10) + ",9001,L2,Rival-two,99000,1,0",
+  ms(15) + ",9003,,,0,0,0",
+  ""
+].join("\n");
+const OWN_SALE = { price: "19400", qty: "1", buyer: "Old-20", t: NOW - 80 * 3600 };
 
 const UNI = {
   9001: {
@@ -68,7 +95,7 @@ const UNI = {
   9003: {                                    // Test Rug: rival cheaper than the median
     lastUploadTime: NOW * 1000,
     listings: [{ pricePerUnit: 70000, quantity: 4, hq: false, retainerName: "Rival-four" }],
-    recentHistory: hist
+    recentHistory: rugHist
   },
   9004: {                                    // Test Ore: listed, but never sold
     lastUploadTime: NOW * 1000,
@@ -114,6 +141,9 @@ const hqOnly = it => ({ ...it,
       return json({ results: [] });                       // GilShopItem etc.
     }
     if (url.includes("v2.xivapi.com/api/sheet")) return json({ rows: [] });
+    // The tracker's listing history. The page asks for this month and last; the
+    // same fixture answers both, and the page must not double-count a reading.
+    if (url.includes("/data/listings-")) return route.fulfill({ status: 200, contentType: "text/csv", body: LISTINGS_CSV });
     if (url.includes("universalis.app")) {
       const ids = url.split("/").pop().split("?")[0].split(",").map(Number);
       const hq = url.includes("hq=true");
@@ -138,14 +168,33 @@ const hqOnly = it => ({ ...it,
   // The Test Ring is gear, which the page does not tick by default.
   await page.check('#groups label[data-group="All"] input');
 
+  // One of Shaun's own sales, as the Sale History window would show it.
+  await page.click("#btnAddSale");
+  await page.fill('#ownSalesBody tr:last-child [data-f="price"]', OWN_SALE.price);
+  await page.fill('#ownSalesBody tr:last-child [data-f="qty"]', OWN_SALE.qty);
+  await page.fill('#ownSalesBody tr:last-child [data-f="buyer"]', OWN_SALE.buyer);
+  const ownStamp = await page.evaluate(t => {
+    const d = new Date(t * 1000), p = n => String(n).padStart(2, "0");
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + "T" + p(d.getHours()) + ":" + p(d.getMinutes());
+  }, OWN_SALE.t);
+  await page.fill('#ownSalesBody tr:last-child [data-f="time"]', ownStamp);
+  await page.dispatchEvent('#ownSalesBody tr:last-child [data-f="time"]', "change");
+  const ownSalesStatus = await page.textContent("#ownSalesStatus");
+
   // Two scans: HQ only off, then on. Only the Test Ring should change.
   const readOut = async () => {
     const status = await page.textContent("#status");
     const statusClass = await page.getAttribute("#status", "class");
-    const tags = await page.$$eval(".tag", ns => ns.map(n => n.textContent.trim() + " || " + (n.getAttribute("title") || "")));
-    const rows = await page.$$eval("table tr", rows => rows.map(r =>
+    const tags = await page.$$eval("#out .tag", ns => ns.map(n => n.textContent.trim() + " || " + (n.getAttribute("title") || "")));
+    const grab = () => page.$$eval("#out table tr", rows => rows.map(r =>
       [...r.querySelectorAll("th,td")].map(c => c.textContent.replace(/\s+/g," ").trim().slice(0,60))));
-    return { status, statusClass, tags, rows };
+    const rows = await grab();
+    // The Supply cell's tooltip carries the shortage arithmetic.
+    const supplyTips = await page.$$eval("#out td[title*='should be filled']", tds => tds.map(t => t.getAttribute("title")));
+    await page.click('#out .tabs button[data-tab="all"]');
+    const allRows = await grab();
+    await page.click('#out .tabs button[data-tab="pf"]');
+    return { status, statusClass, tags, rows, supplyTips, allRows };
   };
   const scan = async () => {
     await page.evaluate(() => { document.getElementById("status").textContent = ""; });
@@ -161,11 +210,15 @@ const hqOnly = it => ({ ...it,
 
   console.log("version stamp      :", stamp);
   console.log("own-retainer field :", JSON.stringify(mineField));
+  console.log("own sales entered  :", JSON.stringify(ownSalesStatus));
   for (const [label, r] of [["HQ only OFF", nq], ["HQ only ON", hq]]) {
     console.log("\n=== " + label + " ===");
     console.log("status class       :", r.statusClass);
     console.log("status text        :", r.status);
     console.log("rows               :", JSON.stringify(r.rows, null, 1));
+    console.log("supply tooltips    :");
+    for (const t of r.supplyTips) console.log("   -", t);
+    console.log("all-items rows     :", JSON.stringify(r.allRows));
     console.log("tags rendered      :");
     for (const t of r.tags) console.log("   -", t);
   }
