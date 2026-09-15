@@ -55,12 +55,15 @@ const rugHist = hist.map(h => ({ ...h, buyerName: "Rug-" + h.buyerName }));
 
 // Incoming supply. The Wall's live reading is 3 days old; the tracker holds
 // readings 30, 20 and 10 days back, and the rule must pick 20 (the most recent
-// at least 14 days before the live one). At 20 days the board held Rival-one
-// and one of Shaun's own, so PreviousListings = 1. Live: Rival-one, Rival-two
-// and his own again, so NewListings = 2. Sales between 20 and 3 days back: the
-// 20,000 block aged 72h or more, i = 16..44, 29 sales; one of them (Old-20,
-// 80 hours old, shown as 19,400 after 3% tax) is entered as his own below, so
-// Purchases = 28 and inflow = (2 - 1 + 28) / (17 / 7) = 11.94 a week.
+// at least 14 days before the live one). At 20 days the board held Rival-one,
+// one of Shaun's own, and Rival-junk at 500,000 — above twice the 80,000
+// median, so not counted — so PreviousListings = 1. Live: Rival-one, Rival-two,
+// his own again and Rival-junk at 999,999, so NewListings = 2. Sales between
+// 20 and 3 days back: the 20,000 block aged 72h or more, i = 16..44, 29 sales;
+// one of them (Old-20, 80 hours old, shown as 19,400 after 3% tax) is entered
+// as his own below, so Purchases = 28 and
+// inflow = (2 - 1 + 28) / (17 / 7) = 11.94 a week. If the junk cutoff failed
+// on the live side that would read 12.35; on the tracker side, 11.53.
 // The Rug has one reading 15 days back that found the board empty: 4 listed now,
 // 85 sold since, inflow = 89 / (15 / 7) = 41.53 a week.
 const ms = d => (NOW - d * DAY) * 1000;
@@ -70,6 +73,7 @@ const LISTINGS_CSV = [
   ms(30) + ",9001,L8,Rival-nine,95000,1,0",
   ms(20) + ",9001,L1,Rival-one,95000,1,0",
   ms(20) + ",9001,L9,Spicy-soy,90000,1,0",
+  ms(20) + ",9001,L7,Rival-junk,500000,1,0",
   ms(10) + ",9001,L1,Rival-one,95000,1,0",
   ms(10) + ",9001,L2,Rival-two,99000,1,0",
   ms(15) + ",9003,,,0,0,0",
@@ -83,7 +87,8 @@ const UNI = {
     listings: [
       { pricePerUnit: 95000, quantity: 1, hq: false, retainerName: "Rival-one" },
       { pricePerUnit: 99000, quantity: 1, hq: false, retainerName: "Rival-two" },
-      { pricePerUnit: 90000, quantity: 1, hq: false, retainerName: "Spicy-soy" }   // his own, must vanish
+      { pricePerUnit: 90000, quantity: 1, hq: false, retainerName: "Spicy-soy" },  // his own, must vanish
+      { pricePerUnit: 999999, quantity: 1, hq: false, retainerName: "Rival-junk" } // overpriced: not supply, not inflow
     ],
     recentHistory: hist
   },

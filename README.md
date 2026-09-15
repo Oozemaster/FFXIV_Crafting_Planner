@@ -12,7 +12,7 @@ built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older des
 of it that remain unbuilt.
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.15.26.1`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.15.26.2`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)
@@ -396,7 +396,8 @@ than closing it, on the reasoning that the marginal seller is the one who gets u
 
 ### 6a. Incoming supply
 
-What other sellers list in a week. Shaun's formula, 2026-09-14.
+What other sellers list in a week. Shaun's formula, 2026-09-14; junk cutoff added
+2026-09-15.
 
 ```
 incomingSupply = max(0, newListings - previousListings + purchases) / weeks
@@ -404,9 +405,9 @@ incomingSupply = max(0, newListings - previousListings + purchases) / weeks
 
 | Term | Meaning |
 |---|---|
-| `previousListings` | Units on the board at the tracker's reading at least **14 days** before the live reading — the most recent such reading — or the oldest reading the tracker has if none is that old. Your own retainers' listings removed. |
-| `newListings` | Units on the board at the live reading, your own removed. Every listing at any price: the tracker records them all, so the live count must too, which is why crafts are fetched with up to 100 listings rather than the cheapest 20. |
-| `purchases` | Units sold between the two readings' upload times, from Universalis' sale history, less the sales you entered as your own (below). |
+| `previousListings` | Units on the board at the tracker's reading at least **14 days** before the live reading — the most recent such reading — or the oldest reading the tracker has if none is that old. Your own retainers' listings removed, and listings priced above **2.0x the market price** removed, the same cutoff as section 2. |
+| `newListings` | Units on the board at the live reading, with the same two removals. The tracker records every listing at any price, so the live board is fetched whole too — up to 100 listings per craft rather than the cheapest 20 — and both are cut at the same point. |
+| `purchases` | Units sold between the two readings' upload times, from Universalis' sale history, less the sales you entered as your own (below). Every sale, whatever the price: a sale is a sale. |
 | `weeks` | The time between the two upload times, never less than one week. |
 
 Whatever is on the board now that was not there before, plus whatever sold in between,
@@ -416,6 +417,13 @@ pulled, or a sale happened that Universalis never recorded, and either way nothi
 listed. Both readings are counted on the quality the craft is sold as (see Quality). The
 period ends at the live reading's upload time, not at the moment of the scan, because
 Universalis knows nothing after it.
+
+The junk cutoff uses today's market price for both readings, not the price at the time of
+the earlier one, so a shift in price between them does not read as listings appearing or
+vanishing. Measured on the first day of data, 2026-09-15: Amdapori Wall Lantern had 14
+listings above the cutoff at both readings; without the cut they read as 14 against 14,
+which happens to cancel, but a single new overpriced listing would have counted as a
+unit a week of incoming supply while counting as nothing in section 2.
 
 **Your own sales.** The setup panel has a table for them, copied from each retainer's Sale
 History window in game: the price as shown there, quantity, buyer, and date and time. The
@@ -427,10 +435,12 @@ clear at) — within one gil, because 59,999 and 60,000 both show as 58,200 at 3
 kept in the session file and, where the browser allows, remembered between visits. The
 status line after a scan says how many rows matched a recorded sale.
 
-**Fixture** (verify.js, Test Wall): live reading 3 days old with two rival units and one
-of yours; tracker readings 30, 20 and 10 days back, the 20-day one holding one rival unit
-and one of yours; 29 sales in the period, one of them entered as yours. Previous 1, new 2,
-purchases 28, 17 days: **11.9 a week**, and the 20-day reading is the one used.
+**Fixture** (verify.js, Test Wall): live reading 3 days old with two rival units, one of
+yours and one rival at 999,999 against an 80,000 median; tracker readings 30, 20 and 10
+days back, the 20-day one holding one rival unit, one of yours and one rival at 500,000;
+29 sales in the period, one of them entered as yours. Previous 1, new 2, purchases 28,
+17 days: **11.9 a week**, and the 20-day reading is the one used. Had the cutoff failed
+on the live side the figure would read 12.4; on the tracker side, 11.5.
 
 **What to expect.** The tracker began writing listings on 2026-09-15, so the earliest a
 reading can be 14 days old is 2026-09-29; until then the oldest reading is used and the
@@ -485,7 +495,7 @@ Judgment calls, not game rules.
 
 | Setting | Current | Effect |
 |---|---|---|
-| Junk listing cutoff | 2.0x market price | Listings above this multiple are excluded from competition. |
+| Junk listing cutoff | 2.0x market price | Listings above this multiple are excluded from competition, and from both readings of incoming supply. |
 | Listings fetched | Cheapest 20 per material | Twenty or more real listings is also the point at which a craft counts as too crowded to enter. |
 | Safety margin | 20% | Share of the demand-minus-supply gap deliberately left unfilled. Covers competitors and anything else the model does not see. |
 | Max of one item | 20 | Upper limit on units of a single item within one bundle. |
