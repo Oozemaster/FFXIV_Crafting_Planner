@@ -109,7 +109,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.15.26.2</span></p>
+    <span class="stamp">v09.16.26.1</span></p>
 </header>
 
 <div class="panel">
@@ -134,18 +134,26 @@
   <!-- Your own sales, copied from each retainer's Sale History in game. The
        incoming-supply figure counts every sale on the board between two readings
        as somebody else's listing that sold; these rows take yours back out. -->
+  <div id="ownSalesBox">
   <div class="sub" style="margin-top:20px;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600">Your sales</div>
-  <div class="hint" style="margin-top:0;margin-bottom:8px">From each retainer's Sale History window: the price as it shows there (after tax),
-    the buyer, and the date and time to the minute. Sales listed here are not counted as competitors' supply.</div>
+  <div class="hint" style="margin-top:0;margin-bottom:8px">From each retainer's Sale History window: the item, the price as it shows there (after tax),
+    the buyer, and the date and time to the minute. Sales listed here are not counted as competitors' supply.
+    A screenshot of the window can be dropped here, pasted (Ctrl+V), or chosen with the button; its rows are read and added for you to check.</div>
   <div class="tablewrap"><table id="ownSales"><thead><tr>
-    <th class="l">Price shown</th><th class="l">Qty</th><th class="l">Buyer</th><th class="l">Date and time</th><th></th>
+    <th class="l">Item</th><th class="l">Price shown</th><th class="l">Qty</th><th class="l">Buyer</th><th class="l">Date and time</th><th></th>
   </tr></thead><tbody id="ownSalesBody"></tbody></table></div>
+  <!-- Item names for the row's dropdown, filled once recipes are loaded. -->
+  <datalist id="itemNames"></datalist>
   <div class="row" style="margin-top:8px">
     <button id="btnAddSale" class="secondary small" type="button">Add a sale</button>
+    <button id="btnSaleShot" class="secondary small" type="button" title="Read the rows off a screenshot of the Sale History window">Add from a screenshot</button>
+    <input type="file" id="saleShot" accept="image/*" multiple hidden>
     <label class="check" for="owntax" style="padding:0;gap:8px;font-size:13px;color:var(--muted)"
       title="The Sale History window shows what you received, after the market tax. The tool adds it back to match the sale against Universalis, which records what the buyer paid.">
       Tax on those sales %<input type="number" id="owntax" value="3" min="0" max="25" style="width:64px;padding:4px 8px"></label>
     <span class="status" id="ownSalesStatus"></span>
+    <span class="status" id="shotStatus"></span>
+  </div>
   </div>
   <div class="row">
     <button id="btnLoad">1 &nbsp;Load recipes</button>
@@ -690,17 +698,30 @@ function ladderCost(id, units) {
 //   readingsFor(itemId)  [{ at, listings: [{ who, price, qty, hq }] }],
 //                        oldest first. `at` is the Universalis upload time in
 //                        milliseconds, the same clock as MARKET's `updated`.
+//   names()              the tracker's watch list, data/items.csv, as item
+//                        names — for the Your sales dropdown before recipes
+//                        are loaded. Never throws; [] when it cannot be had.
 // ---------------------------------------------------------------------------
 const READINGS = {
   // Same origin first (GitHub Pages serves the repository), then the raw file
   // on GitHub. A copy of the page opened from disk, or shown as a data: URL,
   // cannot fetch beside itself at all, so it goes straight to GitHub.
-  urls: month => [
-    ...(/^https?:$/.test(location.protocol) ? ["data/listings-" + month + ".csv"] : []),
-    "https://raw.githubusercontent.com/Oozemaster/FFXIV_Crafting_Planner/main/data/listings-" + month + ".csv"],
+  urls: file => [
+    ...(/^https?:$/.test(location.protocol) ? ["data/" + file] : []),
+    "https://raw.githubusercontent.com/Oozemaster/FFXIV_Crafting_Planner/main/data/" + file],
   byItem: new Map(),   // itemId -> Map(at -> listings[])
   files: [],           // which months loaded, for the status line
   count: 0,            // readings held
+
+  async fetchFile(file) {
+    for (const url of this.urls(file)) {
+      try {
+        const r = await fetch(url, { cache: "no-store" });
+        if (r.ok) return await r.text();
+      } catch (e) { /* try the next address */ }
+    }
+    return null;
+  },
 
   async load(now) {
     this.byItem = new Map(); this.files = []; this.count = 0;
@@ -710,13 +731,7 @@ const READINGS = {
       return m.toISOString().slice(0, 7);
     });
     for (const month of months) {
-      let text = null;
-      for (const url of this.urls(month)) {
-        try {
-          const r = await fetch(url, { cache: "no-store" });
-          if (r.ok) { text = await r.text(); break; }
-        } catch (e) { /* try the next address */ }
-      }
+      const text = await this.fetchFile("listings-" + month + ".csv");
       if (text == null) continue;      // a month with no file yet is normal
       this.files.push(month);
       // A reading is whole within one file, so one seen twice — the same file
@@ -728,6 +743,13 @@ const READINGS = {
       }
     }
     for (const m of this.byItem.values()) this.count += m.size;
+  },
+
+  // itemId, name, category.
+  async names() {
+    const text = await this.fetchFile("items.csv");
+    if (text == null) return [];
+    return text.split(/\r?\n/).slice(1).map(l => csvFields(l)[1]).filter(Boolean);
   },
 
   // lastUpload, itemId, listingID, retainerName, pricePerUnit, quantity, hq.
@@ -890,7 +912,7 @@ function weeklyDemand(history, nowSec) {
 // the scan, because Universalis knows nothing after it.
 const INFLOW_DAYS = 14;
 
-function incomingSupply(m, quality, median, readings, ownSales, ownTax) {
+function incomingSupply(m, quality, median, readings, ownSales, ownTax, itemName) {
   const at = m.updated;
   const before = readings.filter(r => r.at < at);
   if (!before.length) return { known: false, why: readings.length ? "same reading" : "no reading" };
@@ -910,7 +932,7 @@ function incomingSupply(m, quality, median, readings, ownSales, ownTax) {
   // is a floor.
   const oldest = (m.history || []).reduce((a, h) => Math.min(a, h.t * 1000), Infinity);
   const truncated = (m.history || []).length >= 200 && oldest > prev.at;
-  const own = removeOwnSales(sales, ownSales, ownTax);
+  const own = removeOwnSales(sales, ownSales, ownTax, itemName);
   const bought = own.remaining.reduce((a, h) => a + h.q, 0);
 
   const raw = newUnits - prevUnits + bought;
@@ -927,11 +949,16 @@ function incomingSupply(m, quality, median, readings, ownSales, ownTax) {
 // buyer's name. So a sale matches on quantity, on the minute, on the buyer if
 // one was typed, and on price once the tax is added back — within a gil,
 // because 59,999 and 60,000 both show as 58,200 at 3%. Each row you enter
-// takes out one sale at most.
-function removeOwnSales(sales, ownSales, tax) {
+// takes out one sale at most. A row that names an item is only tried against
+// that item's sales (Shaun, 2026-09-16); a row with no name is tried against
+// every item's, as before.
+const sameName = (a, b) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
+
+function removeOwnSales(sales, ownSales, tax, itemName) {
   const used = new Set();
   let matched = 0;
   for (const o of (ownSales || [])) {
+    if (o.item && !sameName(o.item, itemName)) continue;
     const i = sales.findIndex((s, k) => !used.has(k) &&
       s.q === o.qty &&
       Math.floor(s.t / 60) === Math.floor(o.time / 60000) &&
@@ -990,7 +1017,7 @@ function buildCandidates(pool, cfg) {
     // Incoming supply on the same quality as price, demand and supply, and with
     // the same junk cutoff as supply, off the same median.
     const inflow = incomingSupply(m, hqRec ? "hq" : "nq", p.median, READINGS.readingsFor(r.itemId),
-                                  cfg.ownSales, cfg.ownTax);
+                                  cfg.ownSales, cfg.ownTax, r.name);
 
     // Nothing caps quantity any more. Every world in the region is reachable, so
     // a material is never unobtainable — only dearer, and the ladder handles that.
@@ -1417,10 +1444,10 @@ function render() {
 // ---------------------------------------------------------------------------
 // Your sales
 //
-// One row per sale from the Sale History window: price as shown, quantity,
-// buyer, date and time to the minute. Kept in the session file and, where the
-// browser allows, remembered between visits. A sale stays useful for as long
-// as its period is inside a reading pair, so nothing is expired here.
+// One row per sale from the Sale History window: item, price as shown,
+// quantity, buyer, date and time to the minute. Kept in the session file and,
+// where the browser allows, remembered between visits. A sale stays useful for
+// as long as its period is inside a reading pair, so nothing is expired here.
 // ---------------------------------------------------------------------------
 const OWN_SALES_KEY = "ffxiv-planner-own-sales";
 
@@ -1430,13 +1457,22 @@ const localStamp = ms => {
   return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + "T" + p(d.getHours()) + ":" + p(d.getMinutes());
 };
 
+// The Item column's dropdown: every name the page knows a recipe for, filled
+// after Load recipes or a session file. Typing still works before that.
+let ITEM_NAMES = [];
+function fillItemNames(names) {
+  ITEM_NAMES = [...new Set(names.filter(Boolean))].sort();
+  $("itemNames").innerHTML = ITEM_NAMES.map(n => '<option value="' + esc(n) + '">').join("");
+}
+
 function addOwnSale(s) {
   s = s || {};
   const tr = document.createElement("tr");
   tr.innerHTML =
+    '<td class="l"><input type="text" list="itemNames" data-f="item" placeholder="Corner Counter" style="width:200px" value="' + esc(s.item || "") + '"></td>' +
     '<td class="l"><input type="number" min="0" step="1" data-f="price" placeholder="57,667" style="width:120px" value="' + (s.price != null ? esc(s.price) : "") + '"></td>' +
     '<td class="l"><input type="number" min="1" step="1" data-f="qty" value="' + (s.qty || 1) + '" style="width:64px"></td>' +
-    '<td class="l"><input type="text" data-f="buyer" placeholder="Katsu Pendragon" style="width:190px" value="' + esc(s.buyer || "") + '"></td>' +
+    '<td class="l"><input type="text" data-f="buyer" placeholder="Miso Yumesenso" style="width:190px" value="' + esc(s.buyer || "") + '"></td>' +
     '<td class="l"><input type="datetime-local" data-f="time" style="width:auto" value="' + (s.time ? localStamp(s.time) : "") + '"></td>' +
     '<td><button type="button" class="secondary small" data-del title="Remove this row">&times;</button></td>';
   tr.querySelector("[data-del]").onclick = () => { tr.remove(); rememberOwnSales(); };
@@ -1452,7 +1488,7 @@ function readOwnSales() {
     const v = f => tr.querySelector('[data-f="' + f + '"]').value;
     const price = +v("price"), time = v("time") ? new Date(v("time")).getTime() : 0;
     if (!(price > 0) || !time) continue;
-    out.push({ price, qty: Math.max(1, +v("qty") || 1), buyer: v("buyer").trim(), time });
+    out.push({ item: v("item").trim(), price, qty: Math.max(1, +v("qty") || 1), buyer: v("buyer").trim(), time });
   }
   return out;
 }
@@ -1480,6 +1516,194 @@ function recallOwnSales() {
 $("btnAddSale").onclick = () => { addOwnSale().querySelector("input").focus(); };
 $("owntax").onchange = rememberOwnSales;
 recallOwnSales();
+
+// ---------------------------------------------------------------------------
+// Sales from a screenshot
+//
+// The Sale History window cannot be copied as text, so a screenshot of it is
+// read with Tesseract, fetched from jsdelivr the first time one is given —
+// about 7 MB, the page's only request outside the two APIs and the tracker
+// files; the language model stays in the browser's IndexedDB after that.
+// Measured on Shaun's Spicy-soy screenshot of 2026-09-16 (681×541, 12 rows):
+// at 2×, turned dark-on-light, 12 of 12 rows read with every price, buyer
+// and time right. The gil glyph after the price came through as "»" on 12 of
+// 12 at 2× but as a digit on 3 of 12 at 3×, hence the price rule below. The
+// thousands comma was lost on 2 of 12 ("34913»"), which digits-only absorbs.
+// Every row lands in the table as editable fields: the reader is not trusted,
+// the rows are there to be checked.
+// ---------------------------------------------------------------------------
+const OCR_SRC = "https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.min.js";
+const OCR_SCALE = 2;
+let OCR_WORKER = null, OCR_PROGRESS = null;
+
+function loadScript(src) {
+  return new Promise((ok, fail) => {
+    const s = document.createElement("script");
+    s.src = src; s.onload = ok; s.onerror = () => fail(new Error("could not load " + src));
+    document.head.appendChild(s);
+  });
+}
+
+async function ocrWorker() {
+  if (OCR_WORKER) return OCR_WORKER;
+  if (typeof Tesseract === "undefined") await loadScript(OCR_SRC);
+  const w = await Tesseract.createWorker("eng", 1, { logger: m => { if (OCR_PROGRESS) OCR_PROGRESS(m); } });
+  // One block of text, a line per row; the column gaps kept as runs of spaces.
+  await w.setParameters({ tessedit_pageseg_mode: "6", preserve_interword_spaces: "1" });
+  OCR_WORKER = w;
+  return w;
+}
+
+// The window is light text on a dark ground; Tesseract wants the reverse.
+// Grey, scaled up, and inverted when the picture is mostly dark.
+async function shotToCanvas(blob) {
+  const img = await createImageBitmap(blob);
+  const c = document.createElement("canvas");
+  c.width = Math.round(img.width * OCR_SCALE); c.height = Math.round(img.height * OCR_SCALE);
+  const ctx = c.getContext("2d");
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(img, 0, 0, c.width, c.height);
+  const d = ctx.getImageData(0, 0, c.width, c.height), p = d.data;
+  let sum = 0;
+  for (let i = 0; i < p.length; i += 4) { const g = 0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2]; p[i] = g; sum += g; }
+  const dark = sum / (p.length / 4) < 128;
+  for (let i = 0; i < p.length; i += 4) { const g = dark ? 255 - p[i] : p[i]; p[i] = p[i + 1] = p[i + 2] = g; p[i + 3] = 255; }
+  ctx.putImageData(d, 0, 0);
+  return c;
+}
+
+// The price as the window shows it, "57,667" with a gil glyph after it that
+// the reader renders as "»" or, sometimes, as one more digit. With commas
+// present only the comma-grouped part counts; otherwise every digit does.
+function parsePrice(tok) {
+  const t = tok.replace(/[^\d,]/g, "");
+  const grouped = t.includes(",") && t.match(/^\d{1,3}(?:,\d{3})+/);
+  return +((grouped ? grouped[0] : t).replace(/,/g, ""));
+}
+
+// One line of the window, read from the right: date and time, then the
+// buyer (character names are two capitalised words; when the reader runs
+// them together, "ElaraBell", they are split again at the second capital),
+// then the price, and what is left is the item.
+//   "|  Corner Counter        57,667» Katsu Pendragon      9/13 7:28 p.m."
+// Whatever follows the time is ignored: the window's edge can leave a stray
+// character there. The date has no year: this year, or last year if that
+// puts it in the future.
+function parseSaleLine(line, now) {
+  const t = line.replace(/\s+/g, " ").trim();
+  const m = t.match(/^(.*?)\s*(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s*(\d{1,2})[:.](\d{2})\s*(?:([ap])[\s.]*m)?[^\d]*$/i);
+  if (!m) return null;
+  const words = m[1].trim().split(" ");
+  const isPrice = w => /\d/.test(w || "");
+  let buyerWords = 2;
+  if (words.length < 3 || !isPrice(words[words.length - 3])) buyerWords = isPrice(words[words.length - 2]) ? 1 : 0;
+  if (!buyerWords) return null;
+  let buyer = words.slice(-buyerWords).join(" ");
+  if (buyerWords === 1) buyer = buyer.replace(/^([A-Z][^A-Z]+)([A-Z].*)$/, "$1 $2");
+  const price = parsePrice(words[words.length - buyerWords - 1]);
+  if (!(price > 0)) return null;
+  const item = matchItemName(words.slice(0, words.length - buyerWords - 1).join(" "));
+  if (!item) return null;
+
+  now = now || new Date();
+  let h = +m[5];
+  const ap = (m[7] || "").toLowerCase();
+  if (ap === "p" && h < 12) h += 12;
+  if (ap === "a" && h === 12) h = 0;
+  let year = m[4] ? (m[4].length === 2 ? 2000 + +m[4] : +m[4]) : now.getFullYear();
+  let d = new Date(year, +m[2] - 1, +m[3], h, +m[6]);
+  if (!m[4] && d.getTime() > now.getTime() + DAY) d = new Date(year - 1, +m[2] - 1, +m[3], h, +m[6]);
+  return { item, price, qty: 1, buyer, time: d.getTime() };
+}
+
+// The item as read, against the names the page knows. The icon column leaves
+// junk before the name ("oy]", "4 |") and the window cuts a long name short
+// with "…", so: the longest known name inside the text; else, for a cut
+// name, the known name that begins with what is left of it; else a known
+// name within two characters of it; else the text with the junk stripped.
+function matchItemName(raw) {
+  let s = raw.replace(/\s+/g, " ").trim();
+  const cut = /(\.{2,}|…)$/.test(s);
+  s = s.replace(/(\.{2,}|…)$/, "").trim();
+  const low = s.toLowerCase();
+  let best = "";
+  for (const n of ITEM_NAMES) if (n.length > best.length && low.includes(n.toLowerCase())) best = n;
+  if (best) return best;
+  if (cut) {
+    for (let k = low.length; k >= 6; k--) {
+      const tail = low.slice(-k);
+      const hits = ITEM_NAMES.filter(n => n.toLowerCase().startsWith(tail));
+      if (hits.length) return hits[0];
+    }
+  }
+  const stripped = s.replace(/^[\s\S]*?(?=[A-Za-z][A-Za-z']+)/, "");
+  const sl = stripped.toLowerCase();
+  const near = ITEM_NAMES.filter(n => Math.abs(n.length - sl.length) <= 2 && editDistance(n.toLowerCase(), sl) <= 2);
+  return near.length ? near[0] : stripped;
+}
+
+function editDistance(a, b) {
+  const prev = [...Array(b.length + 1).keys()];
+  for (let i = 1; i <= a.length; i++) {
+    let last = prev[0]; prev[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = prev[j];
+      prev[j] = Math.min(prev[j] + 1, prev[j - 1] + 1, last + (a[i - 1] === b[j - 1] ? 0 : 1));
+      last = tmp;
+    }
+  }
+  return prev[b.length];
+}
+
+// Two rows are the same sale when item, price, quantity, buyer and minute
+// agree. The same screenshot given twice adds nothing; two real sales that
+// agree on all five (two Walnut Cartonniers to one buyer in one minute) are
+// two rows in the window and stay two rows here.
+const saleKey = s => [String(s.item || "").toLowerCase(), s.price, s.qty, String(s.buyer || "").toLowerCase(),
+                      Math.floor(s.time / 60000)].join("|");
+
+async function importSaleShots(files) {
+  const shots = [...files].filter(f => f.type.startsWith("image/"));
+  if (!shots.length) return;
+  const say = m => { $("shotStatus").textContent = m; };
+  OCR_PROGRESS = m => {
+    if (m.status === "recognizing text") say("Reading the screenshot… " + Math.round(m.progress * 100) + "%");
+    else if (/load|initial/i.test(m.status || "")) say("Loading the text reader (first time only)…");
+  };
+  try {
+    const w = await ocrWorker();
+    // Before Load recipes the page knows no names; the tracker's watch list
+    // covers what Shaun sells.
+    if (!ITEM_NAMES.length) fillItemNames(await READINGS.names());
+    const have = {};
+    for (const r of readOwnSales()) { const k = saleKey(r); have[k] = (have[k] || 0) + 1; }
+    let read = 0, added = 0, already = 0;
+    for (const f of shots) {
+      const { data } = await w.recognize(await shotToCanvas(f));
+      for (const line of data.text.split("\n")) {
+        const s = parseSaleLine(line);
+        if (!s) continue;
+        read++;
+        const k = saleKey(s);
+        if (have[k] > 0) { have[k]--; already++; continue; }
+        addOwnSale(s); added++;
+      }
+    }
+    rememberOwnSales();
+    say(read ? "Read " + read + " sale" + (read > 1 ? "s" : "") + " from the screenshot" + (shots.length > 1 ? "s" : "") +
+               ": " + added + " added" + (already ? ", " + already + " already in the table" : "") + ". Check the rows."
+             : "No sale rows could be read from that image.");
+  } catch (e) { say("Could not read the screenshot: " + (e.message || e)); }
+}
+
+$("btnSaleShot").onclick = () => $("saleShot").click();
+$("saleShot").onchange = e => { importSaleShots(e.target.files); e.target.value = ""; };
+$("ownSalesBox").ondragover = e => e.preventDefault();
+$("ownSalesBox").ondrop = e => { e.preventDefault(); importSaleShots(e.dataTransfer.files); };
+document.addEventListener("paste", e => {
+  const files = [...(e.clipboardData ? e.clipboardData.files : [])].filter(f => f.type.startsWith("image/"));
+  if (files.length) { e.preventDefault(); importSaleShots(files); }
+});
 
 // ---------------------------------------------------------------------------
 // Session files
@@ -1538,6 +1762,7 @@ function applySession(d) {
   PRICE = new Map(Object.entries(d.prices || {}).map(([k, v]) => [+k, v]));
   LADDER = new Map(Object.entries(d.ladders || {}).map(([k, v]) => [+k, v]));
   const names = new Map(Object.entries(d.names || {}).map(([k, v]) => [+k, v]));
+  fillItemNames([...BY_ITEM.values()].map(r => r.name).concat([...names.values()]));
   PROGRESS = { crafted: d.progress?.crafted || {}, gathered: d.progress?.gathered || {} };
   TAB = d.tab || "pf";
 
@@ -1633,6 +1858,7 @@ $("btnLoad").onclick = async () => {
     setStatus("Asking XIVAPI for every recipe at level " + maxLevel + " or below…");
     RECIPES = await loadRecipes(maxLevel);
     BY_ITEM = new Map(RECIPES.map(r => [r.itemId, r]));
+    fillItemNames(RECIPES.map(r => r.name));
     setStatus("Loading the gathering list…");
     GATHERABLE = await loadGatherable();
     setStatus("Loading Grand Company shop items…");

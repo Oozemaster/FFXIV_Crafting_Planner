@@ -12,7 +12,7 @@ built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older des
 of it that remain unbuilt.
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.15.26.2`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.16.26.1`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)
@@ -41,6 +41,12 @@ its own address on GitHub Pages, or from the raw file on GitHub when the page wa
 from disk. Everything the page knows about these files is in one object, `READINGS`, with
 two calls — `load()` and `readingsFor(itemId)` — so a database could replace the files
 later without touching the calculations.
+
+**Tesseract.js** — the only code the page loads from outside itself, and only when a
+screenshot of the Sale History window is given to the Your sales table (section 6a).
+Fetched from jsdelivr at that moment, about 7 MB in four files (the library, its worker,
+the recognition engine as WebAssembly, and the English model, which the library keeps in
+the browser's IndexedDB afterwards). A page that never sees a screenshot never asks for it.
 
 ### Universalis fields we ignore
 
@@ -160,7 +166,9 @@ and deleted.
 
 `itemId, name, category`. Rewritten every run. 388 items through 2026-09-13; 398 from the
 next run, after the 10 Ceiling Light recipes were added to the tracker's category filter
-(it had not matched the planner's Furnishings group).
+(it had not matched the planner's Furnishings group). Since v09.16.26.1 the page reads it
+too, through `READINGS.names()`: when a screenshot is given to Your sales before any
+recipes are loaded, these 398 names are what the rows are matched against.
 
 ### `data/stock-YYYY-MM.csv`
 
@@ -426,14 +434,45 @@ which happens to cancel, but a single new overpriced listing would have counted 
 unit a week of incoming supply while counting as nothing in section 2.
 
 **Your own sales.** The setup panel has a table for them, copied from each retainer's Sale
-History window in game: the price as shown there, quantity, buyer, and date and time. The
-window shows the price *after* tax, to the minute; Universalis records the price the buyer
-paid, to the second, with the buyer's name. So each row is matched against one recorded
-sale on quantity, on the minute, on the buyer if one was typed, and on price once the tax
-is added back (the "Tax on those sales" field, default 3%, which is what Shaun's sales
-clear at) — within one gil, because 59,999 and 60,000 both show as 58,200 at 3%. Rows are
-kept in the session file and, where the browser allows, remembered between visits. The
-status line after a scan says how many rows matched a recorded sale.
+History window in game: the item, the price as shown there, quantity, buyer, and date and
+time. The window shows the price *after* tax, to the minute; Universalis records the price
+the buyer paid, to the second, with the buyer's name. So each row is matched against one
+recorded sale on quantity, on the minute, on the buyer if one was typed, and on price once
+the tax is added back (the "Tax on those sales" field, default 3%, which is what Shaun's
+sales clear at) — within one gil, because 59,999 and 60,000 both show as 58,200 at 3%.
+**A row that names an item is only tried against that item's sales** (Shaun, 2026-09-16;
+the Item column is a dropdown of every loaded recipe name that can also be typed in); a
+row with the item left blank is tried against every item's, as before. Rows are kept in
+the session file and, where the browser allows, remembered between visits. The status line
+after a scan says how many rows matched a recorded sale.
+
+**Rows from a screenshot.** The window cannot be copied as text, so a screenshot of it —
+dropped on the table, pasted with Ctrl+V, or chosen with the button — is read by
+Tesseract (see Data sources) and its rows are added to the table as ordinary editable
+rows. The picture is scaled 2x and, being light text on a dark ground, inverted; each
+line is then read from the right: date and time (`M/D H:MM a.m.`, no year — this year,
+or last year if that would put it in the future; anything after the time is ignored,
+because the window's edge can leave a stray character there), the buyer (character names
+are two capitalised words; a name the reader ran together, "ElaraBell", is split again at
+the second capital), the price, and what is left is the item. The item text is matched to a known
+name: the longest known name it contains; for a name the window cut short with "…", the
+known name that begins with what was left; then a known name within two characters; else
+the text itself with the icon column's leftovers stripped. The gil glyph after the price
+is read as "»" or, sometimes, as one more digit, so with commas present only the
+comma-grouped part counts (`58,2009` → 58,200). Quantity is always 1: the window has no
+quantity column and every furnishing sale is one row. A row already in the table (same
+item, price, quantity, buyer and minute) is not added again, so the same screenshot twice
+adds nothing; two real sales that agree on all five stay two rows.
+
+Measured on Shaun's two screenshots of 2026-09-16, Spicy-soy (681x541) and Momo-mochi
+(687x556), 12 rows each: **24 of 24 rows** read with item, price, buyer and time all
+right, in 1–3 seconds once the library was loaded, both with the 398 tracker names and
+with the loaded recipes as the name list. Before the two rules above were added the
+second screenshot read 11 of 12 (a stray "i" after one time) with one buyer run together.
+At 3x the glyph read as a digit on 3 of 12 prices (absorbed by the price rule); the
+thousands comma was lost on 2 of 24 (`34913»`), which reading digits only absorbs. Two
+screenshots, one window, one font size: check the rows, especially buyers, because a
+misread buyer's name means the row matches nothing.
 
 **Fixture** (verify.js, Test Wall): live reading 3 days old with two rival units, one of
 yours and one rival at 999,999 against an 80,000 median; tracker readings 30, 20 and 10
@@ -561,9 +600,16 @@ reading.** Items without one are tagged and treated as before: an upper bound. U
 tracker has run for two weeks on the listings file (2026-09-29), every measured rate is
 over a shorter period than intended and spread over a full week.
 
-**A row in Your sales carries no item name**, so it matches any item's sale with the same
-buyer, minute, quantity and price. In practice one purchase is one item, but two crafts
-sharing a sale record would both take the row out.
+**A row in Your sales with the item left blank** matches any item's sale with the same
+buyer, minute, quantity and price; two crafts sharing such a sale record would both take
+the row out. Since v09.16.26.1 a row that names its item is only tried against that item,
+and rows read from a screenshot always carry the name.
+
+**Rows read from a screenshot are as good as the reading.** Measured 24 of 24 on two
+screenshots; a misread buyer's name (the field the game prints smallest) leaves the row
+matching nothing, silently, and a price read with the gil glyph as an extra digit and no
+comma (`349133` for 34,913) cannot be told from a real price. The rows are editable and
+the status line after a scan says how many matched.
 
 **Purchases between two readings are a floor for a fast seller.** The 200-sale history may
 not reach back to the previous reading; the row is tagged when that happens.

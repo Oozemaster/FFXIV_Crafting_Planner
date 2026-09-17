@@ -79,7 +79,7 @@ const LISTINGS_CSV = [
   ms(15) + ",9003,,,0,0,0",
   ""
 ].join("\n");
-const OWN_SALE = { price: "19400", qty: "1", buyer: "Old-20", t: NOW - 80 * 3600 };
+const OWN_SALE = { item: "Test Wall", price: "19400", qty: "1", buyer: "Old-20", t: NOW - 80 * 3600 };
 
 const UNI = {
   9001: {
@@ -173,8 +173,12 @@ const hqOnly = it => ({ ...it,
   // The Test Ring is gear, which the page does not tick by default.
   await page.check('#groups label[data-group="All"] input');
 
+  // The Item dropdown fills from the loaded recipes.
+  const itemOptions = await page.$$eval("#itemNames option", os => os.map(o => o.value));
+
   // One of Shaun's own sales, as the Sale History window would show it.
   await page.click("#btnAddSale");
+  await page.fill('#ownSalesBody tr:last-child [data-f="item"]', OWN_SALE.item);
   await page.fill('#ownSalesBody tr:last-child [data-f="price"]', OWN_SALE.price);
   await page.fill('#ownSalesBody tr:last-child [data-f="qty"]', OWN_SALE.qty);
   await page.fill('#ownSalesBody tr:last-child [data-f="buyer"]', OWN_SALE.buyer);
@@ -185,6 +189,42 @@ const hqOnly = it => ({ ...it,
   await page.fill('#ownSalesBody tr:last-child [data-f="time"]', ownStamp);
   await page.dispatchEvent('#ownSalesBody tr:last-child [data-f="time"]', "change");
   const ownSalesStatus = await page.textContent("#ownSalesStatus");
+
+  // The item rule on its own: a row that names an item is only tried against
+  // that item's sales. One sale, one row that fits it on every other field.
+  const itemRule = await page.evaluate(() => {
+    const sale = [{ q: 1, t: 1000000, p: 20000, buyer: "Old-20" }];
+    const row = item => [{ item, price: 19400, qty: 1, buyer: "Old-20", time: 1000000 * 1000 }];
+    return { named: removeOwnSales(sale, row("Test Wall"), 0.03, "Test Wall").matched,
+             other: removeOwnSales(sale, row("Test Rug"), 0.03, "Test Wall").matched,
+             blank: removeOwnSales(sale, row(""), 0.03, "Test Wall").matched };
+  });
+
+  // The screenshot reader's parser, on lines exactly as Tesseract returned
+  // them from Shaun's Spicy-soy and Momo-mochi screenshots of 2026-09-16 (2x,
+  // no threshold), plus one price with the gil glyph read as a digit (seen at
+  // 3x), a merged "am.", a merged date and time, a date past today (last
+  // year), the window's cut-short name, a stray character after the time
+  // (the window's edge), and a buyer run together. The two header lines must
+  // parse as nothing.
+  const parsed = await page.evaluate(() => {
+    fillItemNames(["Corner Counter", "Belah'dian Crystal Lantern", "Riviera Wardrobe", "Walnut Cartonnier", "Sylphic Wall Lantern",
+                   "Straight Stepping Stones", "Botanist's Garden"]);
+    const now = new Date(2026, 8, 16, 21, 0);
+    const lines = [
+      "|   ®  -  Corner Counter                           57,667» Katsu Pendragon               9/13 7:28 p.m.",
+      "i |  }  Riviera Wardrobe                          32,979» Wilamena Ocana                9/9 11:24am.",
+      "¥  Belah'dian Crystal Lant...                 58,2009 Siera Moon                      9/9 10:48 a.m.",
+      "Walnut Cartonnier                         34913» Totoka Towa                     9/118:26 p.m.",
+      "  Sylphic Wall Lantern                        31,039» Seduciia Bodhi                   12/31 12:15 a.m.",
+      "s  Straight Stepping Stones                 33,948» Asumi Shinku                   9/13 3:39 p.m.         i",
+      "|    i)  Botanist's Garden                           29,097» ElaraBell                          9/13 8:27 am.",
+      "                  Item                                       Materia             Price           Buyer                                              Date/Time",
+      "Spicy-soy"
+    ];
+    const fmt = s => s && [s.item, s.price, s.qty, s.buyer, new Date(s.time).toLocaleString("en-US", { hour12: false })].join(" | ");
+    return lines.map(l => fmt(parseSaleLine(l, now)));
+  });
 
   // Two scans: HQ only off, then on. Only the Test Ring should change.
   const readOut = async () => {
@@ -216,6 +256,10 @@ const hqOnly = it => ({ ...it,
   console.log("version stamp      :", stamp);
   console.log("own-retainer field :", JSON.stringify(mineField));
   console.log("own sales entered  :", JSON.stringify(ownSalesStatus));
+  console.log("item dropdown      :", JSON.stringify(itemOptions));
+  console.log("item rule matched  :", JSON.stringify(itemRule), "(want named 1, other 0, blank 1)");
+  console.log("screenshot lines   :");
+  for (const l of parsed) console.log("   -", l);
   for (const [label, r] of [["HQ only OFF", nq], ["HQ only ON", hq]]) {
     console.log("\n=== " + label + " ===");
     console.log("status class       :", r.statusClass);
