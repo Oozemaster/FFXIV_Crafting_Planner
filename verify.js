@@ -223,7 +223,12 @@ const hqOnly = it => ({ ...it,
       "Spicy-soy"
     ];
     const fmt = s => s && [s.item, s.price, s.qty, s.buyer, new Date(s.time).toLocaleString("en-US", { hour12: false })].join(" | ");
-    return lines.map(l => fmt(parseSaleLine(l, now)));
+    // A stack's row: the two Ovibos Milk totals from the third screenshot,
+    // 25,317 for 30 and 32,913 for 39, must both come out at 844 a unit.
+    const milk = (l, q) => fmt(priceStack(parseSaleLine(l, now), q));
+    return lines.map(l => fmt(parseSaleLine(l, now))).concat([
+      milk("=  Ovibos Milk                                25,317» Ahri Inori                     12/23 10:14 p.m.", 30),
+      milk("=  Ovibos Milk                                  32913» Beeef Cake                      12/23 9:33 p.m.", 39)]);
   });
 
   // Two scans: HQ only off, then on. Only the Test Ring should change.

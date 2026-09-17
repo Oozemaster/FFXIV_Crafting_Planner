@@ -12,7 +12,7 @@ built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older des
 of it that remain unbuilt.
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.16.26.1`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.16.26.2`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)
@@ -459,20 +459,38 @@ name: the longest known name it contains; for a name the window cut short with "
 known name that begins with what was left; then a known name within two characters; else
 the text itself with the icon column's leftovers stripped. The gil glyph after the price
 is read as "»" or, sometimes, as one more digit, so with commas present only the
-comma-grouped part counts (`58,2009` → 58,200). Quantity is always 1: the window has no
-quantity column and every furnishing sale is one row. A row already in the table (same
-item, price, quantity, buyer and minute) is not added again, so the same screenshot twice
-adds nothing; two real sales that agree on all five stay two rows.
+comma-grouped part counts (`58,2009` → 58,200).
 
-Measured on Shaun's two screenshots of 2026-09-16, Spicy-soy (681x541) and Momo-mochi
-(687x556), 12 rows each: **24 of 24 rows** read with item, price, buyer and time all
-right, in 1–3 seconds once the library was loaded, both with the 398 tracker names and
-with the loaded recipes as the name list. Before the two rules above were added the
-second screenshot read 11 of 12 (a stray "i" after one time) with one buyer run together.
-At 3x the glyph read as a digit on 3 of 12 prices (absorbed by the price rule); the
-thousands comma was lost on 2 of 24 (`34913»`), which reading digits only absorbs. Two
-screenshots, one window, one font size: check the rows, especially buyers, because a
-misread buyer's name means the row matches nothing.
+**Stacks.** The window has no quantity column: a stack sale is one row with the quantity
+printed small in the bottom corner of the item's icon, and the price shown is the stack's
+total, net of tax (Shaun, 2026-09-16, from a Momo-mochi screenshot: 25,317 for 30 Ovibos
+Milk and 32,913 for 39 are both 843.9 a unit). The whole-image pass never reads those
+digits, so for every row the icon's bottom corner — placed from where the item's name
+starts, 2.7 to 0.1 name-heights to its left and 0.2 to 1.75 below its centre line — is cut
+out of the picture and read on its own with only digits allowed. A number from 2 up is
+the quantity and the row's price becomes the total divided by it, to the nearest gil, as
+the table wants for a stack; anything else is quantity 1. The status line says how many
+stacks were priced that way.
+
+A row already in the table (same item, price, quantity, buyer and minute) is not added
+again, so the same screenshot twice adds nothing; two real sales that agree on all five
+stay two rows.
+
+Measured on Shaun's three screenshots of 2026-09-16 — Spicy-soy (681x541, 12 rows),
+Momo-mochi (687x556, 12 rows) and a second Momo-mochi (675x312, 8 rows, 7 of them
+stacks): **32 of 32 rows** read with price, buyer, time and, where the name is one the
+page knows, item; **7 of 7 stack quantities** read (four 20s, two 30s, one 39) at
+confidence 95–96 and **no quantity read on any of the 25 plain rows**; 1–3 seconds a
+screenshot once the library was loaded. The rules were shaped on these screenshots as
+they went: the second first read 11 of 12 (a stray "i" after one time) with one buyer run
+together; the third first read the 39 as 1 until the crop was bounded as above (the whole
+icon width dropped the 20s to confidence 7–26; reaching the icon's bottom edge lost the
+30s). What still misreads: 1 buyer of 32 ("Ahri Inori" as `Ahrilnori`, a capital I read
+as an l, in one of its two rows), and an item the page has no name for keeps the window's
+cut text ("Levinchrome Aethersa"). At 3x the glyph read as a digit on 3 of 12 prices
+(absorbed by the price rule); the thousands comma was lost on 3 of 32 (`34913»`), which
+reading digits only absorbs. Three screenshots, one window, one font size: check the
+rows, especially buyers, because a misread buyer's name means the row matches nothing.
 
 **Fixture** (verify.js, Test Wall): live reading 3 days old with two rival units, one of
 yours and one rival at 999,999 against an 80,000 median; tracker readings 30, 20 and 10
@@ -605,8 +623,9 @@ buyer, minute, quantity and price; two crafts sharing such a sale record would b
 the row out. Since v09.16.26.1 a row that names its item is only tried against that item,
 and rows read from a screenshot always carry the name.
 
-**Rows read from a screenshot are as good as the reading.** Measured 24 of 24 on two
-screenshots; a misread buyer's name (the field the game prints smallest) leaves the row
+**Rows read from a screenshot are as good as the reading.** Measured 32 of 32 rows and 7
+of 7 stack quantities on three screenshots, with 1 buyer of 32 misread ("Ahri Inori" as
+`Ahrilnori`); a misread buyer's name (the field the game prints smallest) leaves the row
 matching nothing, silently, and a price read with the gil glyph as an extra digit and no
 comma (`349133` for 34,913) cannot be told from a real price. The rows are editable and
 the status line after a scan says how many matched.

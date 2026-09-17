@@ -109,7 +109,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.16.26.1</span></p>
+    <span class="stamp">v09.16.26.2</span></p>
 </header>
 
 <div class="panel">
@@ -1457,8 +1457,9 @@ const localStamp = ms => {
   return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + "T" + p(d.getHours()) + ":" + p(d.getMinutes());
 };
 
-// The Item column's dropdown: every name the page knows a recipe for, filled
-// after Load recipes or a session file. Typing still works before that.
+// The Item column's dropdown: every name the page knows a recipe for and
+// every material those recipes take, filled after Load recipes or a session
+// file. Typing still works before that.
 let ITEM_NAMES = [];
 function fillItemNames(names) {
   ITEM_NAMES = [...new Set(names.filter(Boolean))].sort();
@@ -1524,11 +1525,22 @@ recallOwnSales();
 // read with Tesseract, fetched from jsdelivr the first time one is given —
 // about 7 MB, the page's only request outside the two APIs and the tracker
 // files; the language model stays in the browser's IndexedDB after that.
-// Measured on Shaun's Spicy-soy screenshot of 2026-09-16 (681×541, 12 rows):
-// at 2×, turned dark-on-light, 12 of 12 rows read with every price, buyer
-// and time right. The gil glyph after the price came through as "»" on 12 of
-// 12 at 2× but as a digit on 3 of 12 at 3×, hence the price rule below. The
-// thousands comma was lost on 2 of 12 ("34913»"), which digits-only absorbs.
+// Measured on Shaun's three screenshots of 2026-09-16 (12, 12 and 8 rows):
+// at 2×, turned dark-on-light, 32 of 32 rows read with every item, price,
+// buyer and time right, after the rules below were shaped on them. The gil
+// glyph after the price came through as "»" on 12 of 12 at 2× but as a digit
+// on 3 of 12 at 3×, hence the price rule. The thousands comma was lost on 3
+// of 32 ("34913»"), which digits-only absorbs.
+//
+// A stack sale is one row with the quantity printed small in the bottom
+// corner of the item's icon ("20" on a stack of Levinchrome Aethersand) and
+// the price is the stack's total, net of tax. The whole-image pass never sees
+// those digits, so each row's icon is cut out of the picture — its position
+// taken from where the item's name starts — and read again on its own with
+// only digits allowed. Quantity 1 when nothing is read. The row's price is
+// then the total divided by the quantity: the table takes the price per
+// unit for a stack (Shaun, 2026-09-15). Measured: 8 of 8 (four 20s, two 30s,
+// one 39, one plain row), and nothing read on any of the 24 plain rows.
 // Every row lands in the table as editable fields: the reader is not trusted,
 // the rows are there to be checked.
 // ---------------------------------------------------------------------------
@@ -1547,22 +1559,24 @@ function loadScript(src) {
 async function ocrWorker() {
   if (OCR_WORKER) return OCR_WORKER;
   if (typeof Tesseract === "undefined") await loadScript(OCR_SRC);
-  const w = await Tesseract.createWorker("eng", 1, { logger: m => { if (OCR_PROGRESS) OCR_PROGRESS(m); } });
-  // One block of text, a line per row; the column gaps kept as runs of spaces.
-  await w.setParameters({ tessedit_pageseg_mode: "6", preserve_interword_spaces: "1" });
-  OCR_WORKER = w;
-  return w;
+  OCR_WORKER = await Tesseract.createWorker("eng", 1, { logger: m => { if (OCR_PROGRESS) OCR_PROGRESS(m); } });
+  return OCR_WORKER;
 }
+// The text pass: one block of text, a line per row, the column gaps kept as
+// runs of spaces. The digits pass: one line, digits only.
+const OCR_TEXT   = { tessedit_pageseg_mode: "6", preserve_interword_spaces: "1", tessedit_char_whitelist: "" };
+const OCR_DIGITS = { tessedit_pageseg_mode: "7", preserve_interword_spaces: "0", tessedit_char_whitelist: "0123456789" };
 
 // The window is light text on a dark ground; Tesseract wants the reverse.
-// Grey, scaled up, and inverted when the picture is mostly dark.
-async function shotToCanvas(blob) {
-  const img = await createImageBitmap(blob);
+// Grey, scaled up, and inverted when the picture is mostly dark. Given a
+// region (source rectangle) only that part is drawn.
+function shotToCanvas(img, scale, region) {
+  const [sx, sy, sw, sh] = region || [0, 0, img.width, img.height];
   const c = document.createElement("canvas");
-  c.width = Math.round(img.width * OCR_SCALE); c.height = Math.round(img.height * OCR_SCALE);
+  c.width = Math.max(1, Math.round(sw * scale)); c.height = Math.max(1, Math.round(sh * scale));
   const ctx = c.getContext("2d");
   ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(img, 0, 0, c.width, c.height);
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
   const d = ctx.getImageData(0, 0, c.width, c.height), p = d.data;
   let sum = 0;
   for (let i = 0; i < p.length; i += 4) { const g = 0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2]; p[i] = g; sum += g; }
@@ -1570,6 +1584,42 @@ async function shotToCanvas(blob) {
   for (let i = 0; i < p.length; i += 4) { const g = dark ? 255 - p[i] : p[i]; p[i] = p[i + 1] = p[i + 2] = g; p[i + 3] = 255; }
   ctx.putImageData(d, 0, 0);
   return c;
+}
+
+// The stack quantity off a row's icon. The icon sits just left of where the
+// item's name starts, about three name-heights square, and the number is in
+// its bottom right; the cut is that corner — from 2.7 to 0.1 name-heights
+// left of the name, from 0.2 to 1.75 below the name's centre line — at 6x,
+// inverted like the rest and left to Tesseract to binarise (a brightness cut
+// failed on the Ovibos Milk icon, which is nearly as white as the digits).
+// Measured: those bounds read 20, 20, 20, 20, 30, 30, 39 at confidence 95–96;
+// taking the whole icon width dropped the 20s to 7–26 and lost the 39, and
+// reaching the icon's bottom edge lost the 30s. `word` is the first word of
+// the item's name in the text pass, with its box in that pass's pixels.
+async function readStackQty(w, img, word) {
+  const h = (word.bbox.y1 - word.bbox.y0) / OCR_SCALE;
+  if (!(h > 0)) return 1;
+  const x0 = word.bbox.x0 / OCR_SCALE, ym = (word.bbox.y0 + word.bbox.y1) / 2 / OCR_SCALE;
+  const cx0 = Math.max(0, x0 - 2.7 * h), cx1 = Math.min(img.width, x0 - 0.1 * h);
+  const cy0 = Math.max(0, ym + 0.2 * h), cy1 = Math.min(img.height, ym + 1.75 * h);
+  if (cx1 - cx0 < 2 || cy1 - cy0 < 2) return 1;
+  const crop = shotToCanvas(img, 6, [cx0, cy0, cx1 - cx0, cy1 - cy0]);
+  // White margin, so the digits are not on the edge of the picture.
+  const pad = document.createElement("canvas");
+  pad.width = crop.width + 40; pad.height = crop.height + 40;
+  const pc = pad.getContext("2d");
+  pc.fillStyle = "#fff"; pc.fillRect(0, 0, pad.width, pad.height); pc.drawImage(crop, 20, 20);
+  const { data } = await w.recognize(pad);
+  const n = +data.text.replace(/\D/g, "");
+  return n >= 2 && n <= 9999 ? n : 1;
+}
+
+// A stack's row: the window's price is the stack total, the table takes the
+// price per unit (Shaun, 2026-09-15), to the nearest gil. 25,317 for 30
+// Ovibos Milk is 844 each; Universalis has 870 a unit, 843.9 after 3%.
+function priceStack(s, qty) {
+  if (qty > 1) { s.qty = qty; s.price = Math.round(s.price / qty); }
+  return s;
 }
 
 // The price as the window shows it, "57,667" with a gil glyph after it that
@@ -1620,7 +1670,8 @@ function parseSaleLine(line, now) {
 // junk before the name ("oy]", "4 |") and the window cuts a long name short
 // with "…", so: the longest known name inside the text; else, for a cut
 // name, the known name that begins with what is left of it; else a known
-// name within two characters of it; else the text with the junk stripped.
+// name within two characters of it; else the text with the junk stripped —
+// everything before the first word of three or more letters ("id)", "oo").
 function matchItemName(raw) {
   let s = raw.replace(/\s+/g, " ").trim();
   const cut = /(\.{2,}|…)$/.test(s);
@@ -1636,7 +1687,7 @@ function matchItemName(raw) {
       if (hits.length) return hits[0];
     }
   }
-  const stripped = s.replace(/^[\s\S]*?(?=[A-Za-z][A-Za-z']+)/, "");
+  const stripped = s.split(" ").filter((w, i, a) => a.slice(0, i + 1).some(x => /^[A-Za-z][A-Za-z']{2,}/.test(x))).join(" ");
   const sl = stripped.toLowerCase();
   const near = ITEM_NAMES.filter(n => Math.abs(n.length - sl.length) <= 2 && editDistance(n.toLowerCase(), sl) <= 2);
   return near.length ? near[0] : stripped;
@@ -1677,12 +1728,24 @@ async function importSaleShots(files) {
     if (!ITEM_NAMES.length) fillItemNames(await READINGS.names());
     const have = {};
     for (const r of readOwnSales()) { const k = saleKey(r); have[k] = (have[k] || 0) + 1; }
-    let read = 0, added = 0, already = 0;
+    let read = 0, added = 0, already = 0, stacks = 0;
     for (const f of shots) {
-      const { data } = await w.recognize(await shotToCanvas(f));
-      for (const line of data.text.split("\n")) {
-        const s = parseSaleLine(line);
+      const img = await createImageBitmap(f);
+      await w.setParameters(OCR_TEXT);
+      const { data } = await w.recognize(shotToCanvas(img, OCR_SCALE), {}, { blocks: true, text: true });
+      const lines = (data.blocks || []).flatMap(b => b.paragraphs.flatMap(p => p.lines));
+      const rows = [];
+      for (const ln of lines) {
+        const s = parseSaleLine(ln.text);
         if (!s) continue;
+        // The first word of three or more letters is where the item's name
+        // starts; what comes before it is the icon, read as junk.
+        rows.push({ s, word: ln.words.find(x => /[A-Za-z]{3,}/.test(x.text)) });
+      }
+      if (rows.length) await w.setParameters(OCR_DIGITS);
+      for (const { s, word } of rows) {
+        const qty = word ? await readStackQty(w, img, word) : 1;
+        if (qty > 1) { priceStack(s, qty); stacks++; }
         read++;
         const k = saleKey(s);
         if (have[k] > 0) { have[k]--; already++; continue; }
@@ -1691,7 +1754,8 @@ async function importSaleShots(files) {
     }
     rememberOwnSales();
     say(read ? "Read " + read + " sale" + (read > 1 ? "s" : "") + " from the screenshot" + (shots.length > 1 ? "s" : "") +
-               ": " + added + " added" + (already ? ", " + already + " already in the table" : "") + ". Check the rows."
+               ": " + added + " added" + (already ? ", " + already + " already in the table" : "") +
+               (stacks ? "; " + stacks + " stack" + (stacks > 1 ? "s" : "") + ", priced per unit" : "") + ". Check the rows."
              : "No sale rows could be read from that image.");
   } catch (e) { say("Could not read the screenshot: " + (e.message || e)); }
 }
@@ -1762,7 +1826,7 @@ function applySession(d) {
   PRICE = new Map(Object.entries(d.prices || {}).map(([k, v]) => [+k, v]));
   LADDER = new Map(Object.entries(d.ladders || {}).map(([k, v]) => [+k, v]));
   const names = new Map(Object.entries(d.names || {}).map(([k, v]) => [+k, v]));
-  fillItemNames([...BY_ITEM.values()].map(r => r.name).concat([...names.values()]));
+  fillItemNames([...BY_ITEM.values()].flatMap(r => [r.name, ...r.ingredients.map(i => i.name)]).concat([...names.values()]));
   PROGRESS = { crafted: d.progress?.crafted || {}, gathered: d.progress?.gathered || {} };
   TAB = d.tab || "pf";
 
@@ -1858,7 +1922,7 @@ $("btnLoad").onclick = async () => {
     setStatus("Asking XIVAPI for every recipe at level " + maxLevel + " or below…");
     RECIPES = await loadRecipes(maxLevel);
     BY_ITEM = new Map(RECIPES.map(r => [r.itemId, r]));
-    fillItemNames(RECIPES.map(r => r.name));
+    fillItemNames(RECIPES.flatMap(r => [r.name, ...r.ingredients.map(i => i.name)]));
     setStatus("Loading the gathering list…");
     GATHERABLE = await loadGatherable();
     setStatus("Loading Grand Company shop items…");
