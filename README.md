@@ -12,7 +12,7 @@ built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older des
 of it that remain unbuilt.
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.16.26.2`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.16.26.3`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)
@@ -115,7 +115,7 @@ type column says which.
 | Listings fetched | Cheapest **20 listings** per material; **up to 100** (every listing) per craft | Count | Competition depth and the material price ladder. Universalis returns listings cheapest first, so the cheapest twenty are the only ones competing with you. A craft is fetched whole so its live count can be set against the tracker's reading (section 6a). Both qualities are kept and flagged; a craft counts only the quality it is sold as (see Quality). Your own retainers' listings are kept and flagged. |
 | Price ladder retained | Cheapest **20** real listings of either quality, your own excluded | Count | Material cost calculation. |
 | Staleness cutoff | **180 days** | Duration | Items whose last upload is older are dropped entirely. |
-| Supply-age warning | **24 hours** | Duration | Items whose last upload is older than this are kept, but tagged with the age of the reading, because the supply count is that old. |
+| Supply-age warning | **24 hours** | Duration | Items whose last upload is older than this are kept. Their age was shown as a tag until 2026-09-16, when Shaun removed the row tags as noise; it is still computed (`supplyAge`, `oldSupply`) and not shown. |
 
 ### Quality
 
@@ -128,7 +128,8 @@ its three numbers from HQ data alone — the 40-sale median from HQ sales, weekl
 from HQ sales, current listings from HQ listings, and the one-gil undercut against the
 cheapest HQ rival — requested from Universalis with its `hq=true` filter, which matters
 because the 20 cheapest of a mixed list could all be NQ. Crafts with no HQ version, which
-is every furnishing, behave exactly as with the box off. Rows sold as HQ are tagged "HQ".
+is every furnishing, behave exactly as with the box off. (Rows sold as HQ were tagged "HQ"
+until 2026-09-16.)
 With the box off, a craft is priced and its competition counted on NQ; its demand counts
 every sale.
 
@@ -184,7 +185,7 @@ One row per item per day.
 | `itemId` | 6347 | Cross-reference against `items.csv`. |
 | `unitsListed` | 7 | Total units on the board. |
 | `listings` | 7 | Number of separate listings. |
-| `sellers` | 6 | Number of distinct retainers, so one retainer holds two listings. |
+| `sellers` | 6 | Number of distinct retainers, so one retainer holds two listings. Computed, no longer shown (removed from the Supply cell 2026-09-16). |
 | `minPrice` | 19,999 | Cheapest listing. |
 | `maxPrice` | 200,000 | Most expensive listing. |
 | `lastUpload` | 1788656373392 | Unix milliseconds. 26 hours before this reading. |
@@ -231,6 +232,18 @@ them, is described under Calculations once that is built.
 
 ## Calculations
 
+**What a row shows.** Since v09.16.26.3 (2026-09-16) a craft in a bundle, and a row on All
+items, carries **no tags**. Shaun: "The items in the bundles don't need any tags. If I need
+more info, we'll add tags later." Removed that day: "HQ", "HQ only" on the heading, "cut
+from N", "open market", "stale", "supply N days old", "N yours listed", "GC seal mats" /
+"GC", "N/wk incoming", "inflow unmeasured", "material unpriced" / "unpriced mat" and
+"short: material", and the seller count in the Supply cell. Everything they said is still
+computed and most of it is still in a tooltip — Supply, Mats each, Profit each, and the
+Listed/wk column on All items. What stays: the notes on **materials** — the price or "never
+sold, costed at 0", "(gatherable)", "GC seals", and the MANUAL_NOTES sourcing labels
+("Unspoiled Node", "Dungeon", "Buy Only", "Allied Society") on the material lines and in the
+Materials tabs. Any new tag is run past Shaun first.
+
 ### 1. Market price
 
 Median of the last 40 recorded sales for that item. For a craft, sales of the quality
@@ -264,11 +277,13 @@ Anything above the cutoff is excluded from competition and shown as "overpriced"
 matched case-insensitively). Their listings **count as supply whatever they are priced
 at**, above the junk cutoff included: ten of yours already on the board means ten fewer to
 make, and repricing them is your call. They are never undercut (section 3) and never
-bought from (section 4). The row is tagged "N yours listed".
+bought from (section 4). (The row was tagged "N yours listed" until 2026-09-16; the count
+is still in the row's data.)
 
-**Supply age.** If the item's last Universalis upload is more than 24 hours old, the row is
-tagged "supply N old" — the supply figure is from that moment and listings may have
-appeared since. Over 7 days the tag reads "stale".
+**Supply age.** The item's last Universalis upload can be days old, so the supply figure is
+from that moment and listings may have appeared since. Until 2026-09-16 a row more than
+24 hours old was tagged "supply N old" and one over 7 days "stale"; Shaun removed both as
+noise — the crafter gives the tool some leniency. The age is still computed, not shown.
 
 **Items with 20 or more real listings are dropped entirely.** Twenty already ahead of
 you is not a market worth entering. Since 2026-09-15 a craft is fetched whole (up to 100
@@ -288,8 +303,8 @@ The board sells cheapest first and a tie loses, so it goes one gil under the che
 rival, or lower still if sales say the item is worth less. Your own listings are not
 rivals; undercutting yourself helps nobody.
 
-Where no rival listings exist, `listAt` is `marketPrice` and the item is tagged "open
-market".
+Where no rival listings exist, `listAt` is `marketPrice`. (The item was tagged "open
+market" until 2026-09-16; removed — every board is an open market.)
 
 ### 4. Material cost
 
@@ -319,13 +334,15 @@ re-runs it for the quantity recommended and shows that in Mats each; the differe
 the cheapest rungs running out. Divided by yield for recipes that make more than one per
 craft. Shards and crystals are materials like any other.
 
-A row whose materials ran short is tagged "short: material name" and the tooltip says how
-many were needed, how many were listed, and whether the material has a recipe or can be
-gathered.
+Until 2026-09-16 a row whose materials ran short was tagged "short: material name", with a
+tooltip saying how many were needed, how many were listed, and whether the material has a
+recipe or can be gathered. Shaun removed it: a material cannot be short, the crafter
+gathers or buys the rest. The shortfall is still costed at the market price.
 
 **A material with no sale history is costed at zero**, on the rule agreed 2026-09-13:
-what nobody has bought cannot be sold either, so using it costs nothing. The row is tagged
-"material unpriced". Measured 2026-09-13: of the 288 materials reachable from the 398
+what nobody has bought cannot be sold either, so using it costs nothing. The material line
+says "never sold, costed at 0" (the row's own "material unpriced" tag was removed
+2026-09-16). Measured 2026-09-13: of the 288 materials reachable from the 398
 level-50 furnishing recipes, 287 have a sale on Seraph; the one that does not is Odin's
 Mantle, which is untradeable.
 
@@ -340,7 +357,7 @@ farmed, not bought.
 |---|---|---|---|
 | 6 | 42,199 | 7,033 | Cheapest six, all under the median. |
 | 12 | 90,199 | 7,517 | The six at 10,000 are charged at 8,000 each. |
-| 42 | 330,199 | 7,862 | 30 units beyond the board, at 8,000 each. Tagged "short". |
+| 42 | 330,199 | 7,862 | 30 units beyond the board, at 8,000 each. (Was tagged "short" until 2026-09-16.) |
 
 ### 5. Weekly demand
 
@@ -396,8 +413,10 @@ Since 2026-09-15 the formula also subtracts what other sellers list in a week, m
 shortage = floor((weeklyDemand - supply - incomingSupply) x (1 - safetyMargin))
 ```
 
-For an item with no earlier reading to measure from, `incomingSupply` is 0 and the row is
-tagged "inflow unmeasured", so it comes out exactly as it did before.
+For an item with no earlier reading to measure from, `incomingSupply` is 0, so it comes out
+exactly as it did before. (The row was tagged "inflow unmeasured", and a measured one
+"N/wk incoming", until 2026-09-16; Shaun removed both — the figure is settled inside the
+quantity. It is still in the Supply cell's tooltip and the Listed/wk column on All items.)
 
 The margin covers everything the model still cannot see. It leaves a shortage open rather
 than closing it, on the reasoning that the marginal seller is the one who gets undercut.
@@ -503,7 +522,8 @@ on the live side the figure would read 12.4; on the tracker side, 11.5.
 reading can be 14 days old is 2026-09-29; until then the oldest reading is used and the
 rate is spread over a full week. Refresh is sparse — 27% of items on a typical day, 32%
 never refreshed in the first eight days — so an item can go weeks between readings, and a
-newly refreshed item has no earlier reading at all. Both cases are tagged.
+newly refreshed item has no earlier reading at all. Both cases show in the Listed/wk
+column's tooltip on All items (the row tags were removed 2026-09-16).
 
 ### 7. Profit and ranking
 
@@ -529,8 +549,8 @@ its shortage and the per-item cap allow, then the next, until the slots run out.
 Bundles are then filled by handing each item, whole, to whichever bundle currently has the
 lowest total value and room for it. No item appears in two bundles, so no two guild
 members compete on the same item. When no bundle has room for the whole quantity, the
-item is cut down to the largest free space anywhere, the row is tagged "cut from N", and
-the summary says so. Allocation then runs again with that item capped, so the freed slots
+item is cut down to the largest free space anywhere and the summary line above the
+bundles says so (the row's "cut from N" tag was removed 2026-09-16). Allocation then runs again with that item capped, so the freed slots
 go to the next-best item rather than sitting empty.
 
 ### 9. Priority bands
@@ -559,7 +579,7 @@ Judgment calls, not game rules.
 | Minimum sale price | 5,000 gil | Items below this are excluded. |
 | Minimum sales per week | 1 | Items below this are excluded. |
 | Staleness cutoff | 180 days | Items not uploaded within this period are excluded. |
-| Supply-age warning | 24 hours | Items not uploaded within this period are tagged with the age of the reading. |
+| Supply-age warning | 24 hours | Items not uploaded within this period are flagged in the row's data; the tag that showed it was removed 2026-09-16. |
 | Own retainers | Spicy-soy, Momo-mochi | Listings from these count as supply but are never undercut or bought from. Editable in the setup panel. |
 | Material price cap | 1.0x market price | No unit of material is ever charged above the median of its last 40 sales. |
 | Vendor-cheap threshold | 100 gil | Materials a vendor sells below this are classed as buy rather than gather. |
@@ -614,7 +634,8 @@ Every constant above is unvalidated.
 ## Known defects
 
 **Competitors listing during the week are measured only where the tracker has an earlier
-reading.** Items without one are tagged and treated as before: an upper bound. Until the
+reading.** Items without one are treated as before: an upper bound (the tag that said so
+was removed 2026-09-16; the Listed/wk column on All items shows a dash). Until the
 tracker has run for two weeks on the listings file (2026-09-29), every measured rate is
 over a shorter period than intended and spread over a full week.
 
@@ -631,7 +652,8 @@ comma (`349133` for 34,913) cannot be told from a real price. The rows are edita
 the status line after a scan says how many matched.
 
 **Purchases between two readings are a floor for a fast seller.** The 200-sale history may
-not reach back to the previous reading; the row is tagged when that happens.
+not reach back to the previous reading; the Listed/wk tooltip on All items says so when
+that happens (the row tag was removed 2026-09-16).
 
 **Sale history is capped at 200 records per item.** For furnishings that spans months. For
 a fast-moving material it may cover only days, so demand for those is measured over a

@@ -81,7 +81,7 @@
   .pri { font-size:10.5px; padding:2px 8px; border-radius:10px; border:1px solid currentColor; }
   .pri.p1 { color:var(--good); } .pri.p2 { color:var(--warn); } .pri.p3 { color:var(--muted); }
   .tag { font-size:10.5px; padding:2px 7px; border-radius:10px; border:1px solid currentColor; margin-left:6px; }
-  .tag.open { color:var(--good); } .tag.stale { color:var(--bad); } .tag.seal { color:var(--warn); }
+  .tag.seal { color:var(--warn); }
   .totals { display:flex; gap:26px; flex-wrap:wrap; margin:2px 0 18px; }
   .totals div span { display:block; font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); }
   .totals div strong { font-size:22px; font-weight:700; }
@@ -109,7 +109,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.16.26.2</span></p>
+    <span class="stamp">v09.16.26.3</span></p>
 </header>
 
 <div class="panel">
@@ -278,15 +278,6 @@ function setMyRetainers(text) {
 
 // Two honest states: a real fraction when we know the total amount of work,
 // and a moving stripe when we do not. Never a made-up percentage.
-// "3 hours", "2 days" — for telling someone how old a reading is without making
-// them do arithmetic on a timestamp.
-function ageOf(ms) {
-  const h = ms / 3600000;
-  if (h < 1) return Math.max(1, Math.round(h * 60)) + " min";
-  if (h < 48) return Math.round(h) + (Math.round(h) === 1 ? " hour" : " hours");
-  return Math.round(h / 24) + " days";
-}
-
 function setBar(f) {
   const wrap = $("barwrap"), fill = $("bar");
   if (f === null) { wrap.classList.add("wait"); fill.style.width = ""; return; }
@@ -1130,19 +1121,10 @@ function trueMargin(row, k) {
   return { each: revenue - mats, mats, short, unpriced };
 }
 
-// The "short" tag. Most shortfalls are intermediates nobody lists because
-// everybody makes them — Silver Ingot, Iron Rivets — so say which material it
-// is and whether it has a recipe, rather than a blanket "travel to buy".
-function shortTag(short, world) {
-  if (!short.length) return "";
-  const lines = short.map(s => s.name + ": need " + s.need + ", " + s.have + " listed on " + world +
-    ". " + (s.craftable ? "Has a recipe, so craft the rest or buy them on another world."
-          : s.canGather ? "Gatherable, so gather the rest or buy them on another world."
-          : "Buy the rest on another world.") +
-    " The shortfall is costed at the market price, which is what another world would charge.");
-  const label = short.slice(0, 2).map(s => s.name).join(", ") + (short.length > 2 ? " +" + (short.length - 2) : "");
-  return '<span class="tag flag" title="' + esc(lines.join("\n")) + '">short: ' + esc(label) + '</span>';
-}
+// The "short: material" tag was removed 2026-09-16 at Shaun's direction: most
+// shortfalls are intermediates nobody lists because everybody makes them, and
+// the crafter gathers or buys the rest anyway. The shortfall is still costed
+// at the market price, which is the part that matters to the profit figure.
 
 // The incoming-supply figure explained in one tooltip: the two readings, what
 // each counted, what sold between, what was yours.
@@ -1160,13 +1142,6 @@ function inflowNote(r) {
     (i.short ? " Under " + INFLOW_DAYS + " days of history, so the rate is spread over a full week." : "") +
     (i.truncated ? " Universalis returned its limit of 200 sales and the oldest is newer than the reading, so the sold count is a floor." : "");
 }
-const inflowTag = r => {
-  const i = r.inflowInfo;
-  if (!i) return "";
-  if (!i.known) return '<span class="tag flag" title="' + esc(inflowNote(r)) + '">inflow unmeasured</span>';
-  return '<span class="tag' + (i.truncated || i.short ? ' flag' : '') + '" title="' + esc(inflowNote(r)) + '">' +
-    i.perWeek.toFixed(1) + '/wk incoming</span>';
-};
 
 // Order and priority-band a bundle by its real, ladder-walked value.
 function bandFor(p) {
@@ -1282,9 +1257,7 @@ function render() {
   const guildCraft = materialsFor(allItems, false);
   const guildRaw = materialsFor(allItems, true);
 
-  let html = '<div class="panel"><h2>This week on ' + esc(cfg.world) +
-    (cfg.hq ? ' <span class="tag seal" title="HQ only: crafts that can be high quality are priced, demanded and counted on HQ sales and listings alone. Materials are unaffected.">HQ only</span>' : '') +
-    '</h2><div class="totals">' +
+  let html = '<div class="panel"><h2>This week on ' + esc(cfg.world) + '</h2><div class="totals">' +
     '<div><span>Expected profit, buying every material</span><strong>' + gil(grand) + '</strong></div>' +
     '<div><span>Bundles</span><strong>' + pfs.length + '</strong></div>' +
     '<div><span>Slots used</span><strong>' + used + '</strong></div>' +
@@ -1319,42 +1292,29 @@ function render() {
         const r = it.row, [label, cls] = PRI[it.priority];
         const tm = trueMargin(r, it.k);
         const made = PROGRESS.crafted[r.itemId] || 0;
-        let tags = "";
-        if (r.hq) tags += '<span class="tag seal" title="Sold as high quality: price, demand and supply are from HQ sales and listings only.">HQ</span>';
-        if (it.trimmedFrom) tags += '<span class="tag flag" title="The allocator wanted ' + it.trimmedFrom +
-          ' but no bundle had room for that many, and an item is never split across two bundles.">cut from ' +
-          it.trimmedFrom + '</span>';
-        if (r.openMarket) tags += '<span class="tag open" title="Nobody else has this genuinely listed right now, so there is no rival to undercut and it lists at the market price.">open market</span>';
-        if (r.stale) tags += '<span class="tag stale" title="No data uploaded for over a week">stale</span>';
-        else if (r.oldSupply) tags += '<span class="tag stale" title="' +
-          'The last time anybody looked at this item on the market board was ' + ageOf(r.supplyAge) +
-          ' ago, so the supply figure is that old. Listings may have appeared since. ' +
-          'Check the board before trusting the quantity.">supply ' + ageOf(r.supplyAge) + ' old</span>';
-        if (r.mine) tags += '<span class="tag seal" title="' + r.mine + ' of the ' + r.supply +
-          ' units listed are on your own retainers. They count as supply, so the quantity above is ' +
-          'what is needed beyond them. They are never undercut and cannot be bought from.">' +
-          r.mine + ' yours listed</span>';
-        if (r.hasSeal) tags += '<span class="tag seal">GC seal mats</span>';
-        tags += inflowTag(r);
-        if (tm.unpriced) tags += '<span class="tag flag" title="' +
-          'One of the materials has no sale history on this world, so it is costed at zero on the ' +
-          'assumption that it cannot be sold either. If you would have to buy it, the profit shown is too high.">material unpriced</span>';
-        tags += shortTag(tm.short, cfg.world);
+        // A craft carries no tags. Shaun, 2026-09-16: "The items in the bundles
+        // don't need any tags. If I need more info, we'll add tags later."
+        // Removed that day: "HQ", "cut from N", "open market", "stale",
+        // "supply N days old", "N yours listed", "GC seal mats", "N/wk
+        // incoming", "inflow unmeasured", "material unpriced" and "short:
+        // material", plus the seller count in Supply. Each was a modelling
+        // detail already folded into the numbers; the Supply, Mats each and
+        // Profit each tooltips still show the arithmetic. The materials line
+        // keeps its sourcing notes — those he kept.
         const mats = r.parts.map(x => x.qty + "x " + itemLink(x.name) +
           (x.unit ? " @ " + gil(x.unit) : " (never sold, costed at 0)") +
           (x.canGather ? " (gatherable)" : "") + sealTag(x)).join(" &middot; ");
         html += '<tr' + (made >= it.k ? ' class="done"' : '') + '><td class="l"><span class="qty">' +
-          it.k + '&times;</span> ' + itemLink(r.name) + noteTag(r.name) + tags + '<div class="mats">' + mats + '</div></td>' +
+          it.k + '&times;</span> ' + itemLink(r.name) + '<div class="mats">' + mats + '</div></td>' +
           '<td class="l"><span class="pri ' + cls + '">' + label + '</span></td>' +
           '<td class="l">' + esc(r.job) + '</td><td>' + r.level + '</td><td>' + gil(r.listAt) + '</td>' +
-          '<td title="' + r.supply + ' units listed now by ' + (r.sellers || 0) + ' seller(s), ' +
+          '<td title="' + r.supply + ' units listed now, ' +
             (r.inflowInfo && r.inflowInfo.known ? 'plus ' + r.inflow.toFixed(1) + ' a week being listed by others, ' : '') +
             'against weekly demand of ' + r.demand.toFixed(1) + '. Gap of ' +
             Math.max(0, r.demand - r.supply - (r.inflow || 0)).toFixed(1) + ', of which at most ' +
             safeUnits(r.demand, r.supply, r.inflow, LAST.cfg.margin == null ? 0.2 : LAST.cfg.margin) +
             ' should be filled after the safety margin.">' + r.supply + (r.clipped ? '+' : '') +
-            ' <span style="color:var(--muted)">vs ' + r.demand.toFixed(0) + '/wk &middot; ' +
-            (r.sellers || 0) + ' seller' + ((r.sellers || 0) === 1 ? '' : 's') + '</span></td>' +
+            ' <span style="color:var(--muted)">vs ' + r.demand.toFixed(0) + '/wk</span></td>' +
           '<td title="At market price the materials come to ' + gil(r.cost) +
             ' per unit, which is what the ranking used. This is what they cost per unit for the ' +
             'quantity shown, walking the listings cheapest first and never paying more than the ' +
@@ -1382,10 +1342,7 @@ function render() {
       '<th title="List price after tax, less the materials">Profit each</th>' +
       '</tr></thead><tbody>';
     for (const r of ranked.slice(0, 300))
-      html += '<tr><td class="l">' + itemLink(r.name) + noteTag(r.name) +
-        (r.openMarket ? '<span class="tag open">open</span>' : '') +
-        (r.hasSeal ? '<span class="tag seal">GC</span>' : '') +
-        (r.unpriced ? '<span class="tag flag" title="A material has no sale history here and is costed at zero">unpriced mat</span>' : '') + '</td>' +
+      html += '<tr><td class="l">' + itemLink(r.name) + '</td>' +
         '<td class="l">' + esc(r.job) + '</td><td>' + r.level + '</td><td>' + gil(r.listAt) + '</td>' +
         '<td>' + r.demand.toFixed(1) + '</td>' +
         '<td title="' + r.realListings + ' listings holding ' + r.supply + ' units">' +
