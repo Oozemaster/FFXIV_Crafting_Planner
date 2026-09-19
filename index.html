@@ -111,7 +111,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.19.26.1</span></p>
+    <span class="stamp">v09.19.26.2</span></p>
 </header>
 
 <div class="panel">
@@ -122,7 +122,7 @@
     <div><label class="field" for="pf">Bundles to make</label><input type="number" id="pf" value="5" min="1" max="30"></div>
     <div><label class="field" for="slots">Slots per bundle</label><input type="number" id="slots" value="40" min="1" max="200"></div>
     <div><label class="field" for="maxper">Max of one item</label><input type="number" id="maxper" value="20" min="1" max="100"></div>
-    <div><label class="field" for="tax">Sales tax %</label><input type="number" id="tax" value="10" min="0" max="25"></div>
+    <div><label class="field" for="tax">Sales tax %</label><input type="number" id="tax" value="5" min="0" max="25"></div>
     <div><label class="field" for="stale">Ignore data older than (days)</label><input type="number" id="stale" value="180" min="1" max="730"></div>
     <div><label class="field" for="minprice">Min sale price (gil)</label><input type="number" id="minprice" value="5000" min="0" step="1000"></div>
     <div><label class="field" for="minsales">Min sales per week</label><input type="number" id="minsales" value="1" min="0" step="0.5"></div>
@@ -1119,7 +1119,7 @@ function trueMargin(row, k) {
     if (r.imported) short.push({ name: x.name, need, have: need - r.imported,
                                  craftable: x.craftable, canGather: x.canGather });
   }
-  const revenue = row.listAt * (1 - (LAST && LAST.cfg ? LAST.cfg.tax : 0.1));
+  const revenue = row.listAt * (1 - (LAST && LAST.cfg ? LAST.cfg.tax : 0.05));
   const mats = cost / Math.max(1, k);
   return { each: revenue - mats, mats, short, unpriced };
 }
@@ -1439,14 +1439,14 @@ const retainerSections = () => [...$("retainers").querySelectorAll(".retainer")]
 let ACTIVE_RETAINER = null;
 // Where a screenshot lands when nothing says: the section last used, else the first.
 const targetRetainer = () => (ACTIVE_RETAINER && ACTIVE_RETAINER.isConnected) ? ACTIVE_RETAINER : (retainerSections()[0] || null);
-// A blank tax field reads as the page's default, as the profit tax does.
-const taxOf = sec => { const v = $r(sec, "tax").value.trim(); return (v === "" || isNaN(+v) ? 10 : +v) / 100; };
+// A blank tax field reads as the game's 5%, as the profit tax does.
+const taxOf = sec => { const v = $r(sec, "tax").value.trim(); return (v === "" || isNaN(+v) ? 5 : +v) / 100; };
 
 function addRetainer(r) {
   r = r || {};
   const secs = retainerSections();
-  // The first retainer starts at 10%; each one after copies the last (Shaun, 2026-09-19).
-  const tax = r.tax != null ? Math.round(r.tax * 100) : (secs.length ? $r(secs[secs.length - 1], "tax").value : 10);
+  // The first retainer starts at the game's 5%; each one after copies the last (Shaun, 2026-09-19).
+  const tax = r.tax != null ? Math.round(r.tax * 100) : (secs.length ? $r(secs[secs.length - 1], "tax").value : 5);
   const sec = document.createElement("div");
   sec.className = "retainer";
   sec.innerHTML =
@@ -1895,7 +1895,7 @@ function applySession(d) {
   } else {
     const names = String(c.mine || "").split(/[,;]/).map(s => s.trim()).filter(Boolean);
     if (!names.length && (c.ownSales || []).length) names.push("");
-    setRetainers(names.map((name, i) => ({ name, tax: c.ownTax != null ? c.ownTax : 0.10, sales: i ? [] : (c.ownSales || []) })));
+    setRetainers(names.map((name, i) => ({ name, tax: c.ownTax != null ? c.ownTax : 0.05, sales: i ? [] : (c.ownSales || []) })));
   }
 
   // Show the categories this scan used, so the page reads consistently.
@@ -2039,7 +2039,7 @@ $("btnScan").onclick = async () => {
 
     const cfg = { world: $("world").value.trim() || "Seraph",
       portfolios: +$("pf").value || 5, slots: +$("slots").value || 20,
-      maxPer: +$("maxper").value || 10, tax: (+$("tax").value || 10) / 100,
+      maxPer: +$("maxper").value || 10, tax: (+$("tax").value || 5) / 100,
       staleDays: +$("stale").value || 180, minPrice: +$("minprice").value || 0,
       minSales: +$("minsales").value || 0,
       margin: (+$("margin").value >= 0 ? +$("margin").value : 20) / 100,

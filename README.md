@@ -12,7 +12,7 @@ built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older des
 of it that remain unbuilt.
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.19.26.1`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.19.26.2`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)
@@ -462,7 +462,7 @@ v09.19.26.1, 2026-09-19: the guild's retainers pay different tax). A section is 
 with **Add a retainer** and carries the retainer's name, its own "Tax on its sales" field,
 its own Add a sale and Add from a screenshot buttons, and a table of its sales copied from
 its Sale History window in game: the item, the price as shown there, quantity, buyer, and
-date and time. The first retainer's tax starts at 10%; each one added after copies the
+date and time. The first retainer's tax starts at the game's 5%; each one added after copies the
 last one's. Removing a retainer asks first, then takes its sales with it. The window shows
 the price *after* tax, to the minute; Universalis records the price the buyer paid, to the
 second, with the buyer's name. So each row is matched against one recorded sale on
@@ -540,10 +540,11 @@ column's tooltip on All items (the row tags were removed 2026-09-16).
 ### 7. Profit and ranking
 
 ```
-profitEach = (listAt x 0.90) - materialCost
+profitEach = (listAt x 0.95) - materialCost
 ```
 
-The 0.90 is the 10% market board sales tax. For ranking, `materialCost` is each
+The 0.95 is the 5% market board sales tax (the default; the Sales tax field sets it. It was
+10% until 2026-09-19, when Shaun found the game's rate is 5%). For ranking, `materialCost` is each
 ingredient at its market price (section 4); the bundle view shows the same figure with
 materials at what the listings actually ask for the quantity recommended. Expected profit
 for a row is quantity times profit each. **Competitors who list during the week are not
@@ -604,9 +605,10 @@ Judgment calls, not game rules.
 | Failed request retry | Once, after 3 seconds | A Universalis request that fails three times in a row is tried once more at the end of the scan. |
 | Incoming-supply gap | 14 days | The previous reading is the most recent one at least this old. Shorter periods read one seller's batch as a weekly rate. |
 | Listings fetched per craft | Up to 100 | Universalis' ceiling. Crafts are counted whole so the live count matches the tracker's. |
-| Tax on your own sales | 10% for the first retainer; each after copies the last | Per retainer. What the Sale History window took off, added back to match that retainer's sales against Universalis. Separate from the 10% used for profit. |
+| Sales tax | 5% | The market board's cut of every sale, taken off the list price for profit. Was 10% until 2026-09-19. |
+| Tax on your own sales | 5% for the first retainer; each after copies the last | Per retainer. What the Sale History window took off, added back to match that retainer's sales against Universalis. Separate from the Sales tax used for profit; Shaun's own retainers clear at 3%. |
 
-Fixed by the game: 10% sales tax; 40 listing slots per character.
+Fixed by the game: 5% sales tax; 40 listing slots per character.
 
 Set by choice: recipe level 50 and under.
 
@@ -681,7 +683,7 @@ rather than the actual off-world price, which is usually lower.
 is not detected by a daily reading taken around midday.
 
 **Blanking a setup field does not restore its default.** An empty Safety margin reads as
-0%, an empty Sales tax as 10%, and a 0 entered for tax also reads as 10%. Empty Slots per
+0%, an empty Sales tax as 5%, and a 0 entered for tax also reads as 5%. Empty Slots per
 bundle and Max of one item fall back to 20 and 10 rather than the page defaults of 40
 and 20. Only matters if a field is cleared.
 

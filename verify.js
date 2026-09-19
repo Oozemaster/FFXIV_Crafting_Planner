@@ -169,8 +169,8 @@ const hqOnly = it => ({ ...it,
   const mineAtStart = await page.inputValue("#mine");
 
   // Two of Shaun's retainers, each with its own tax (2026-09-19): the first
-  // starts at 10% and is set to 3%; the second must copy the 3% and is set to
-  // 5%. A third is added and removed again, accepting the confirm, to check
+  // starts at the game's 5% and is set to 3%; the second must copy the 3% and
+  // is set to 5%. A third is added and removed again, accepting the confirm, to check
   // that the names field follows.
   page.on("dialog", d => d.accept());
   const addRetainer = async (name, tax) => {
@@ -292,7 +292,7 @@ const hqOnly = it => ({ ...it,
   console.log("version stamp      :", stamp);
   console.log("own-retainer field :", JSON.stringify(mineField), "(page start " + JSON.stringify(mineAtStart) +
               ", with a third " + JSON.stringify(mineWithThree) + ")");
-  console.log("retainer tax       : first " + firstTax + ", second copied " + copiedTax + ", third copied " + thirdTax + " (want 10, 3, 5)");
+  console.log("retainer tax       : first " + firstTax + ", second copied " + copiedTax + ", third copied " + thirdTax + " (want 5, 3, 5)");
   console.log("own sales entered  :", JSON.stringify(ownSalesStatus));
   console.log("item dropdown      :", JSON.stringify(itemOptions));
   console.log("item rule matched  :", JSON.stringify(itemRule), "(want named 1, other 0, blank 1)");
