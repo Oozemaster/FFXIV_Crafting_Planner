@@ -12,7 +12,7 @@ built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older des
 of it that remain unbuilt.
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.19.26.2`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.19.26.3`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)
@@ -233,7 +233,8 @@ them, is described under Calculations once that is built.
 ## Calculations
 
 **What a row shows.** Since v09.16.26.3 (2026-09-16) a craft in a bundle, and a row on All
-items, carries **no tags**. Shaun: "The items in the bundles don't need any tags. If I need
+items, carries **no tags** — except the red **Overflow** tag Shaun asked for on 2026-09-19
+(section 8). Shaun: "The items in the bundles don't need any tags. If I need
 more info, we'll add tags later." Removed that day: "HQ", "HQ only" on the heading, "cut
 from N", "open market", "stale", "supply N days old", "N yours listed", "GC seal mats" /
 "GC", "N/wk incoming", "inflow unmeasured", "material unpriced" / "unpriced mat" and
@@ -561,10 +562,24 @@ its shortage and the per-item cap allow, then the next, until the slots run out.
 
 Bundles are then filled by handing each item, whole, to whichever bundle currently has the
 lowest total value and room for it. No item appears in two bundles, so no two guild
-members compete on the same item. When no bundle has room for the whole quantity, the
+members compete on the same item — with the one exception below. When no bundle has room for the whole quantity, the
 item is cut down to the largest free space anywhere and the summary line above the
 bundles says so (the row's "cut from N" tag was removed 2026-09-16). Allocation then runs again with that item capped, so the freed slots
 go to the next-best item rather than sitting empty.
+
+**Overflow** (Shaun, 2026-09-19). His first guild run asked for 7 bundles of 40 and got 120
+slots filled: only 47 of 136 candidates had any shortage, and the one big one, Wall
+Planter at 33, was cut to the 20-per-item cap. His rule: when bundles still have slots
+after the pass above, a craft whose shortage was more than Max of one item sends the rest
+out as extra rows — most profitable craft first, at most Max of one item of it in any one
+bundle, each row to the bundle worth least that has room — until the shortage is filled
+or every bundle is full. Each such row carries a red **Overflow** tag, the only tag a
+craft carries ("Overflow still capped at 20/bundle, split across bundles, with the bundles
+balanced for profit"). It is the one case where a craft is in more than one bundle; the
+hint above the bundles says so when it happens. An Overflow row has its own Made tally,
+and its Mats each walks the material ladder from where the craft's earlier rows stopped,
+so the second twenty are not costed on the same cheap listings as the first. On the
+09-19 file this adds 13 Wall Planters (120 → 133 slots).
 
 ### 9. Priority bands
 
@@ -588,7 +603,7 @@ Judgment calls, not game rules.
 | Junk listing cutoff | 2.0x market price | Listings above this multiple are excluded from competition, and from both readings of incoming supply. |
 | Listings fetched | Cheapest 20 per material | Twenty or more real listings is also the point at which a craft counts as too crowded to enter. |
 | Safety margin | 20% | Share of the demand-minus-supply gap deliberately left unfilled. Covers competitors and anything else the model does not see. |
-| Max of one item | 20 | Upper limit on units of a single item within one bundle. |
+| Max of one item | 20 | Upper limit on units of a single item within one bundle. Shortage beyond it goes to other bundles as Overflow rows (section 8) while any have slots free. |
 | Minimum sale price | 5,000 gil | Items below this are excluded. |
 | Minimum sales per week | 1 | Items below this are excluded. |
 | Staleness cutoff | 180 days | Items not uploaded within this period are excluded. |

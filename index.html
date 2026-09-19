@@ -84,6 +84,7 @@
   .pri.p1 { color:var(--good); } .pri.p2 { color:var(--warn); } .pri.p3 { color:var(--muted); }
   .tag { font-size:10.5px; padding:2px 7px; border-radius:10px; border:1px solid currentColor; margin-left:6px; }
   .tag.seal { color:var(--warn); }
+  .tag.over { color:var(--bad); }
   .totals { display:flex; gap:26px; flex-wrap:wrap; margin:2px 0 18px; }
   .totals div span { display:block; font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); }
   .totals div strong { font-size:22px; font-weight:700; }
@@ -111,7 +112,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.19.26.2</span></p>
+    <span class="stamp">v09.19.26.3</span></p>
 </header>
 
 <div class="panel">
@@ -663,12 +664,16 @@ const availOf = id => (LADDER.get(id) || []).reduce((a, l) => a + l.qty, 0);
 // another world at the going rate. So every unit costs min(listing, median),
 // and once the listings run out the rest cost the median. `imported` is how
 // many units the local board could not cover at all. Shaun, 2026-09-13.
-function ladderCost(id, units) {
+function ladderCost(id, units, skip) {
   const med = PRICE.get(id) || 0;
   if (!med) return { cost: 0, imported: units };     // never sold here: costed at zero
-  let left = units, cost = 0;
+  // `skip`: units an earlier row of the same craft already took off this
+  // ladder (an Overflow row starts where the first row stopped).
+  let left = units, cost = 0, pass = skip || 0;
   for (const l of (LADDER.get(id) || [])) {
-    const take = Math.min(l.qty, left);
+    let qty = l.qty;
+    if (pass) { const p = Math.min(qty, pass); qty -= p; pass -= p; if (!qty) continue; }
+    const take = Math.min(qty, left);
     cost += take * Math.min(l.price, med); left -= take;
     if (!left) break;
   }
@@ -1074,7 +1079,45 @@ function plan(rows, cfg) {
     const c = caps.get(it.row.itemId);
     if (c && it.k < c.from) { it.trimmedFrom = c.from; result.trimmed.push({ name: it.row.name, from: c.from, to: it.k }); }
   }
+  // Overflow (Shaun, 2026-09-19): slots still free after that, and a craft
+  // whose shortage was cut by Max of one item, mean the rest goes out as
+  // extra rows tagged Overflow. The one case where a craft is in more than
+  // one bundle.
+  overflow(result.pfs, rows, cfg);
+  result.pfs = result.pfs.filter(p => p.items.length);
+  // The material ladder is walked once per craft across its rows: a later
+  // row starts where the earlier ones stopped (it.before units in), the
+  // plain row first.
+  const seen = new Map();
+  for (const it of result.pfs.flatMap(p => p.items).sort((a, b) => (a.over ? 1 : 0) - (b.over ? 1 : 0))) {
+    it.before = seen.get(it.row.itemId) || 0;
+    seen.set(it.row.itemId, it.before + it.k);
+  }
   return result;
+}
+
+// What the shortage allows beyond Max of one item, once every bundle has had
+// its first pass: most profitable craft first, at most maxPer of it in any one
+// bundle, each row to the bundle worth least that has room, until the
+// shortage is filled or every bundle is full. Shaun's rule, 2026-09-19:
+// "Overflow still capped at 20/bundle, split across bundles, with the bundles
+// balanced for profit."
+function overflow(pfs, rows, cfg) {
+  const val = b => b.k * b.row.margin;
+  const inBundle = (p, id) => p.items.filter(it => it.row.itemId === id).reduce((a, it) => a + it.k, 0);
+  const placed = new Map();
+  for (const p of pfs) for (const it of p.items) placed.set(it.row.itemId, (placed.get(it.row.itemId) || 0) + it.k);
+  for (const r of rows.slice().sort((a, b) => b.margin - a.margin)) {
+    let left = safeUnits(r.demand, r.supply, r.inflow, cfg.margin) - (placed.get(r.itemId) || 0);
+    while (left > 0) {
+      const room = pfs.filter(p => p.slots < cfg.slots && inBundle(p, r.itemId) < cfg.maxPer);
+      if (!room.length) break;
+      const t = room.reduce((a, c) => c.value < a.value ? c : a);
+      const k = Math.min(left, cfg.slots - t.slots, cfg.maxPer - inBundle(t, r.itemId));
+      const it = { row: r, k, over: true };
+      t.items.push(it); t.slots += k; t.value += val(it); left -= k;
+    }
+  }
 }
 
 // Bundles: each item goes whole to whichever bundle is worth least and has room,
@@ -1098,14 +1141,14 @@ function partition(bundles, n, perPortfolio) {
     const t = room.reduce((a, c) => c.value < a.value ? c : a);
     t.items.push(b); t.slots += b.k; t.value += val(b);
   }
-  return { pfs: pf.filter(p => p.items.length), trimmed };
+  return { pfs: pf, trimmed };
 }
 
 // The per-unit margin assumed the cheapest listing went on forever. Once we know
 // how many of each to make, work out what the materials really cost by walking
 // the listings for that quantity, and report that instead. `mats` is the
 // material cost per unit — every gil of it you gather yourself is extra profit.
-function trueMargin(row, k) {
+function trueMargin(row, k, before) {
   let cost = 0, unpriced = false;
   const short = [];   // materials the world's listings cannot cover for this quantity
   for (const x of row.parts) {
@@ -1114,7 +1157,7 @@ function trueMargin(row, k) {
     // Marked in MANUAL_NOTES as something you farm rather than buy: charged at
     // the flat market rate, not walked up a listing ladder you will not touch.
     if (x.selfSource) { cost += x.unit * x.qty * k; continue; }
-    const need = x.qty * k, r = ladderCost(x.id, need);
+    const need = x.qty * k, r = ladderCost(x.id, need, x.qty * (before || 0));
     cost += r.cost;
     if (r.imported) short.push({ name: x.name, need, have: need - r.imported,
                                  craftable: x.craftable, canGather: x.canGather });
@@ -1148,7 +1191,7 @@ function inflowNote(r) {
 
 // Order and priority-band a bundle by its real, ladder-walked value.
 function bandFor(p) {
-  const val = it => it.k * trueMargin(it.row, it.k).each;
+  const val = it => it.k * trueMargin(it.row, it.k, it.before).each;
   const items = p.items.slice().sort((a, b) => val(b) - val(a));
   const total = items.reduce((a, it) => a + val(it), 0);
   let run = 0;
@@ -1194,6 +1237,9 @@ const PRI = { 1: ["Craft first", "p1"], 2: ["Craft next", "p2"], 3: ["If time al
 
 const sealTag = x => x.seal ?
   '<span class="tag seal" title="Bought with Grand Company seals: ' + x.seal + '">GC seals</span>' : "";
+// The one tag a craft carries, at Shaun's request (2026-09-19).
+const overTag = () =>
+  ' <span class="tag over" title="Beyond Max of one item: the shortage allows more of this craft than one bundle may hold, so the rest fills slots that would otherwise be empty, at most the cap per bundle.">Overflow</span>';
 
 // splitGathering: raw materials are a gathering plan, so they split by how you
 // actually get each thing. Crafting materials are a shopping list — you stand at
@@ -1256,6 +1302,7 @@ function render() {
   const grand = pfs.reduce((a, p) => a + p.value, 0);
   const used = pfs.reduce((a, p) => a + p.slots, 0);
   const allItems = pfs.flatMap(p => p.items);
+  const hasOver = allItems.some(it => it.over);
 
   const guildCraft = materialsFor(allItems, false);
   const guildRaw = materialsFor(allItems, true);
@@ -1264,7 +1311,9 @@ function render() {
     '<div><span>Expected profit, buying every material</span><strong>' + gil(grand) + '</strong></div>' +
     '<div><span>Bundles</span><strong>' + pfs.length + '</strong></div>' +
     '<div><span>Slots used</span><strong>' + used + '</strong></div>' +
-    '</div><div class="hint">Claim a bundle by number in Discord. No two bundles share an item. ' +
+    '</div><div class="hint">Claim a bundle by number in Discord. ' +
+    (hasOver ? 'A craft is in two bundles only as Overflow: its shortage was more than Max of one item, and the rest fills slots that would otherwise be empty. '
+             : 'No two bundles share an item. ') +
     'Values account for the ' + Math.round(cfg.tax * 100) + '% tax, what is already listed, and the fact ' +
     'that you cannot sell more than you craft. Materials are costed as bought; whatever you gather ' +
     'yourself comes back as extra profit.</div>' +
@@ -1293,8 +1342,10 @@ function render() {
         '<th title="List price after tax, less the materials.">Profit each</th><th>Expected</th><th>Made</th></tr></thead><tbody>';
       for (const it of items) {
         const r = it.row, [label, cls] = PRI[it.priority];
-        const tm = trueMargin(r, it.k);
-        const made = PROGRESS.crafted[r.itemId] || 0;
+        const tm = trueMargin(r, it.k, it.before);
+        // An Overflow row keeps its own tally, apart from the craft's plain row.
+        const key = r.itemId + (it.over ? ":o" + (i + 1) : "");
+        const made = PROGRESS.crafted[key] || 0;
         // A craft carries no tags. Shaun, 2026-09-16: "The items in the bundles
         // don't need any tags. If I need more info, we'll add tags later."
         // Removed that day: "HQ", "cut from N", "open market", "stale",
@@ -1308,7 +1359,7 @@ function render() {
           (x.unit ? " @ " + gil(x.unit) : " (never sold, costed at 0)") +
           (x.canGather ? " (gatherable)" : "") + sealTag(x)).join(" &middot; ");
         html += '<tr' + (made >= it.k ? ' class="done"' : '') + '><td class="l"><span class="qty">' +
-          it.k + '&times;</span> ' + itemLink(r.name) + '<div class="mats">' + mats + '</div></td>' +
+          it.k + '&times;</span> ' + itemLink(r.name) + (it.over ? overTag() : '') + '<div class="mats">' + mats + '</div></td>' +
           '<td class="l"><span class="pri ' + cls + '">' + label + '</span></td>' +
           '<td class="l">' + esc(r.job) + '</td><td>' + r.level + '</td><td>' + gil(r.listAt) + '</td>' +
           '<td title="' + r.supply + ' units listed now, ' +
@@ -1329,7 +1380,7 @@ function render() {
             ' per unit, which is what the ranking used. This is the figure with materials at what ' +
             'the listings actually ask for the quantity shown.">' +
             gil(tm.each) + '</td><td>' + gil(it.k * tm.each) + '</td>' +
-          '<td><input class="track" type="number" min="0" max="99" data-craft="' + r.itemId +
+          '<td><input class="track" type="number" min="0" max="99" data-craft="' + key +
           '" data-need="' + it.k + '" value="' + made + '"></td></tr>';
       }
       html += '</tbody></table></div></div>';

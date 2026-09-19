@@ -222,6 +222,19 @@ const hqOnly = it => ({ ...it,
              blank: removeOwnSales(sale, row(""), "Test Wall").matched };
   });
 
+  // An Overflow row starts up the material ladder where the craft's earlier
+  // rows stopped (2026-09-19). Ladder: 5 at 900, then 10 at 1,100; median
+  // 1,000. Five units from the bottom cost 4,500; five more, skipping those,
+  // cost 5 x min(1,100, 1,000) = 5,000; and 20 with 5 skipped is 10 x 1,000
+  // off the ladder plus 10 more at the median = 20,000.
+  const ladderRule = await page.evaluate(() => {
+    LADDER.set(999901, [{ price: 900, qty: 5 }, { price: 1100, qty: 10 }]); PRICE.set(999901, 1000);
+    const r = { first: ladderCost(999901, 5).cost, next: ladderCost(999901, 5, 5).cost,
+                far: ladderCost(999901, 20, 5).cost, farImported: ladderCost(999901, 20, 5).imported };
+    LADDER.delete(999901); PRICE.delete(999901);
+    return r;
+  });
+
   // Each row carries its own retainer's tax (2026-09-19): 20,000 gross shows
   // as 19,000 at 5% and as 19,400 at 3%, so 19,000 matches at 5% only.
   const taxRule = await page.evaluate(() => {
@@ -270,12 +283,14 @@ const hqOnly = it => ({ ...it,
     const grab = () => page.$$eval("#out table tr", rows => rows.map(r =>
       [...r.querySelectorAll("th,td")].map(c => c.textContent.replace(/\s+/g," ").trim().slice(0,60))));
     const rows = await grab();
+    // Bundle headers: slots and value, to see the balance and the overflow.
+    const heads = await page.$$eval("#out .pf header", hs => hs.map(h => h.textContent.replace(/\s+/g, " ").trim()));
     // The Supply cell's tooltip carries the shortage arithmetic.
     const supplyTips = await page.$$eval("#out td[title*='should be filled']", tds => tds.map(t => t.getAttribute("title")));
     await page.click('#out .tabs button[data-tab="all"]');
     const allRows = await grab();
     await page.click('#out .tabs button[data-tab="pf"]');
-    return { status, statusClass, tags, rows, supplyTips, allRows };
+    return { status, statusClass, tags, rows, heads, supplyTips, allRows };
   };
   const scan = async () => {
     await page.evaluate(() => { document.getElementById("status").textContent = ""; });
@@ -297,12 +312,14 @@ const hqOnly = it => ({ ...it,
   console.log("item dropdown      :", JSON.stringify(itemOptions));
   console.log("item rule matched  :", JSON.stringify(itemRule), "(want named 1, other 0, blank 1)");
   console.log("tax rule matched   :", JSON.stringify(taxRule), "(want at5 1, at3 0)");
+  console.log("ladder skip        :", JSON.stringify(ladderRule), "(want first 4500, next 5000, far 20000, farImported 10)");
   console.log("screenshot lines   :");
   for (const l of parsed) console.log("   -", l);
   for (const [label, r] of [["HQ only OFF", nq], ["HQ only ON", hq]]) {
     console.log("\n=== " + label + " ===");
     console.log("status class       :", r.statusClass);
     console.log("status text        :", r.status);
+    console.log("bundle headers     :", JSON.stringify(r.heads));
     console.log("rows               :", JSON.stringify(r.rows, null, 1));
     console.log("supply tooltips    :");
     for (const t of r.supplyTips) console.log("   -", t);
