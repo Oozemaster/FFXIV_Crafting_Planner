@@ -12,7 +12,7 @@ built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older des
 of it that remain unbuilt.
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.19.26.4`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.19.26.5`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)
@@ -576,14 +576,15 @@ bundle, each row to the bundle worth least that has room — until the shortage 
 or every bundle is full ("Overflow still capped at 20/bundle, split across bundles, with
 the bundles balanced for profit"). It is the one case where a craft is in more than one
 bundle; the hint above the bundles says so when it happens. The red **Overflow** tag, the
-only tag a craft carries, goes by bundle order: the first bundle to hold the craft shows
-its plain row, and its row in every later bundle is tagged (Shaun: "only on the second
-entry and past" — an added row can land in an earlier bundle than the first-pass one, so
-which row was added is not what the reader sees). An Overflow row has its own Made
-tally, and Mats each walks the material ladder once per craft in that same order, a
-later row starting where the earlier ones stopped, so the second twenty are not costed
-on the same cheap listings as the first. On the 09-19 file this adds 13 Wall Planters
-(120 → 133 slots).
+only tag a craft carries, goes by origin: the craft's first-pass row (the one the cap
+cut, usually 20) is plain wherever it sits, and every row the overflow step added is
+tagged. Because an added row goes to the poorest bundle with room, it can land in an
+earlier bundle than the plain row, so a tagged row may come first in reading order.
+Shaun chose this over tagging by bundle order on 2026-09-19 ("Tag by origin"), having
+seen both; v09.19.26.4 briefly did the other. An Overflow row has its own Made tally, and
+Mats each walks the material ladder once per craft, plain row first, a later row starting
+where the earlier ones stopped, so the second twenty are not costed on the same cheap
+listings as the first. On the 09-19 file this adds 13 Wall Planters (120 → 133 slots).
 
 ### 9. Priority bands
 

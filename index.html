@@ -112,7 +112,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.19.26.4</span></p>
+    <span class="stamp">v09.19.26.5</span></p>
 </header>
 
 <div class="panel">
@@ -1085,15 +1085,15 @@ function plan(rows, cfg) {
   // one bundle.
   overflow(result.pfs, rows, cfg);
   result.pfs = result.pfs.filter(p => p.items.length);
-  // Which of a craft's rows is the plain one goes by bundle order (Shaun,
-  // 2026-09-19: the tag belongs on "the second entry and past"): the first
-  // bundle to hold the craft has its plain row, later bundles' rows are
-  // Overflow. The material ladder is walked once per craft in that order,
-  // a later row starting where the earlier ones stopped (it.before units in).
+  // The tag goes by origin (Shaun, 2026-09-19, choosing between this and
+  // bundle order): the craft's first-pass row is plain wherever it sits, and
+  // every row overflow added is Overflow — so a tagged row can come before
+  // the plain one when the poorest bundle with room was an earlier one. The
+  // material ladder is walked once per craft, the plain row first, a later
+  // row starting where the earlier ones stopped (it.before units in).
   const seen = new Map();
-  for (const it of result.pfs.flatMap(p => p.items)) {
+  for (const it of result.pfs.flatMap(p => p.items).sort((a, b) => (a.over ? 1 : 0) - (b.over ? 1 : 0))) {
     it.before = seen.get(it.row.itemId) || 0;
-    it.over = it.before > 0;
     seen.set(it.row.itemId, it.before + it.k);
   }
   return result;
