@@ -5,8 +5,11 @@ people can craft without flooding the same items.
 
 **Use:** open the page, press **Load recipes**, then **Scan the market**. Claim a bundle
 by number in Discord, craft it, list it. Bundles to make, Slots per bundle, Max of one
-item and Safety margin re-plan the last scan the moment they change, no scan needed
-(since v09.19.26.6, 2026-09-19); every other setting takes effect at the next scan.
+item and Safety margin re-plan the last scan without a new one (since v09.19.26.6,
+2026-09-19): change the field, then click the ✓ beside it (or press Enter), because a
+scroll over a number field changes it and must not re-plan by itself (v09.19.26.7). The
+✓ is grey while the field matches what the bundles were planned with. Every other
+setting takes effect at the next scan.
 
 **This document describes the tool as it is built today.** The incoming-supply term was
 built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older design of
@@ -14,7 +17,7 @@ built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older des
 of it that remain unbuilt.
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.19.26.6`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.19.26.7`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)

@@ -302,17 +302,27 @@ const hqOnly = it => ({ ...it,
 
   const nq = await scan();
 
-  // Bundles to make re-plans the last scan in place, no scan (2026-09-19):
-  // 5 -> 3 must show three bundles and leave the status line untouched.
+  // Bundles to make re-plans the last scan in place, no scan (2026-09-19),
+  // but only once its tick is clicked: typing 3 alone must change nothing and
+  // light the tick; the tick must then show three bundles and leave the
+  // status line untouched; Enter applies too.
   const statusBefore = await page.textContent("#status");
+  const bundles = async () => (await page.$$("#out .pf")).length;
+  const tickOff = async () => page.$eval('[data-tick="pf"]', b => b.disabled);
+  const replan = { tickAtRest: await tickOff() };
   await page.fill("#pf", "3");
-  await page.dispatchEvent("#pf", "change");
-  const replan = { bundles: (await page.$$("#out .pf")).length,
-                   tab: await page.textContent('#out .tabs button[data-tab="pf"]'),
-                   statusSame: (await page.textContent("#status")) === statusBefore };
+  await page.dispatchEvent("#pf", "input");
+  replan.typedOnly = await bundles();
+  replan.tickLit = !(await tickOff());
+  await page.click('[data-tick="pf"]');
+  replan.ticked = await bundles();
+  replan.tickAfter = await tickOff();
+  replan.tab = await page.textContent('#out .tabs button[data-tab="pf"]');
+  replan.statusSame = (await page.textContent("#status")) === statusBefore;
   await page.fill("#pf", "5");
-  await page.dispatchEvent("#pf", "change");
-  replan.back = (await page.$$("#out .pf")).length;
+  await page.dispatchEvent("#pf", "input");
+  await page.press("#pf", "Enter");
+  replan.enter = await bundles();
 
   await page.check("#hqonly");
   const hq = await scan();
@@ -326,7 +336,8 @@ const hqOnly = it => ({ ...it,
   console.log("item rule matched  :", JSON.stringify(itemRule), "(want named 1, other 0, blank 1)");
   console.log("tax rule matched   :", JSON.stringify(taxRule), "(want at5 1, at3 0)");
   console.log("ladder skip        :", JSON.stringify(ladderRule), "(want first 4500, next 5000, far 20000, farImported 10)");
-  console.log("re-plan, no scan   :", JSON.stringify(replan), "(want bundles 3, tab Bundles3, statusSame true, back 5)");
+  console.log("re-plan, no scan   :", JSON.stringify(replan),
+              "(want tickAtRest true, typedOnly 5, tickLit true, ticked 3, tickAfter true, tab Bundles3, statusSame true, enter 5)");
   console.log("screenshot lines   :");
   for (const l of parsed) console.log("   -", l);
   for (const [label, r] of [["HQ only OFF", nq], ["HQ only ON", hq]]) {

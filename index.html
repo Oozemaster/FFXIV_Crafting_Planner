@@ -44,6 +44,10 @@
   button.small { padding:6px 12px; font-size:13px; }
   button:disabled { opacity:.45; cursor:not-allowed; }
   .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:16px; }
+  /* A field whose change waits for its tick: the input and a small button beside it. */
+  .apply { display:flex; gap:6px; align-items:center; }
+  .apply input { flex:1; min-width:0; }
+  button.tick { padding:6px 9px; font-size:13px; line-height:1; background:transparent; color:var(--accent); }
   .status { font-size:13px; color:var(--muted); min-height:20px; }
   .status.err { color:var(--bad); }
   .groups { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;
@@ -112,7 +116,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.19.26.6</span></p>
+    <span class="stamp">v09.19.26.7</span></p>
 </header>
 
 <div class="panel">
@@ -120,14 +124,14 @@
   <div class="grid">
     <div><label class="field" for="world">World</label><input type="text" id="world" value="Seraph"></div>
     <div><label class="field" for="maxlvl">Max recipe level</label><input type="number" id="maxlvl" value="50" min="1" max="100"></div>
-    <div><label class="field" for="pf">Bundles to make</label><input type="number" id="pf" value="5" min="1" max="30"></div>
-    <div><label class="field" for="slots">Slots per bundle</label><input type="number" id="slots" value="40" min="1" max="200"></div>
-    <div><label class="field" for="maxper">Max of one item</label><input type="number" id="maxper" value="20" min="1" max="100"></div>
+    <div><label class="field" for="pf">Bundles to make</label><div class="apply"><input type="number" id="pf" value="5" min="1" max="30"><button type="button" class="tick" data-tick="pf" disabled title="Apply this to the bundles. Until it is clicked, the change waits.">&#10003;</button></div></div>
+    <div><label class="field" for="slots">Slots per bundle</label><div class="apply"><input type="number" id="slots" value="40" min="1" max="200"><button type="button" class="tick" data-tick="slots" disabled title="Apply this to the bundles. Until it is clicked, the change waits.">&#10003;</button></div></div>
+    <div><label class="field" for="maxper">Max of one item</label><div class="apply"><input type="number" id="maxper" value="20" min="1" max="100"><button type="button" class="tick" data-tick="maxper" disabled title="Apply this to the bundles. Until it is clicked, the change waits.">&#10003;</button></div></div>
     <div><label class="field" for="tax">Sales tax %</label><input type="number" id="tax" value="5" min="0" max="25"></div>
     <div><label class="field" for="stale">Ignore data older than (days)</label><input type="number" id="stale" value="180" min="1" max="730"></div>
     <div><label class="field" for="minprice">Min sale price (gil)</label><input type="number" id="minprice" value="5000" min="0" step="1000"></div>
     <div><label class="field" for="minsales">Min sales per week</label><input type="number" id="minsales" value="1" min="0" step="0.5"></div>
-    <div><label class="field" for="margin">Safety margin %</label><input type="number" id="margin" value="20" min="0" max="90" step="5"></div>
+    <div><label class="field" for="margin">Safety margin %</label><div class="apply"><input type="number" id="margin" value="20" min="0" max="90" step="5"><button type="button" class="tick" data-tick="margin" disabled title="Apply this to the bundles. Until it is clicked, the change waits.">&#10003;</button></div></div>
     <div><label class="field" for="hqonly">Quality</label>
       <label class="check" title="Sell as high quality. For any craft that can be HQ, its price, demand and supply come from HQ sales and HQ listings alone. Materials are unaffected: you buy whichever quality is cheapest. Crafts with no HQ version behave as normal."><input type="checkbox" id="hqonly"> HQ only</label></div>
   </div>
@@ -1456,6 +1460,7 @@ function render() {
   });
   track("input[data-craft]", "crafted");
   track("input[data-gather]", "gathered");
+  shapeTicks();
 }
 
 // ---------------------------------------------------------------------------
@@ -1968,12 +1973,25 @@ function applySession(d) {
 // allocator, so a change re-plans the last scan in place, read exactly as the
 // scan would read the field. World, quality, tax, the filters and the recipe
 // level change what is fetched or what passes, and still need a scan.
-for (const [id, key, read] of [
-    ["pf", "portfolios", v => +v || 5],
-    ["slots", "slots", v => +v || 20],
-    ["maxper", "maxPer", v => +v || 10],
-    ["margin", "margin", v => (+v >= 0 ? +v : 20) / 100]]) {
-  $(id).onchange = () => { if (!LAST) return; LAST.cfg[key] = read($(id).value); render(); };
+//
+// The change waits for its tick (Shaun, the same day): a scroll over a number
+// field changes it, and that must not re-plan the bundles by itself. The tick
+// is live only while the field differs from what the bundles were planned
+// with, so it also shows a change is pending. Enter in the field applies too.
+const SHAPE = [
+  ["pf", "portfolios", v => +v || 5],
+  ["slots", "slots", v => +v || 20],
+  ["maxper", "maxPer", v => +v || 10],
+  ["margin", "margin", v => (+v >= 0 ? +v : 20) / 100]];
+const tickOf = id => document.querySelector('[data-tick="' + id + '"]');
+function shapeTicks() {
+  for (const [id, key, read] of SHAPE) tickOf(id).disabled = !LAST || read($(id).value) === LAST.cfg[key];
+}
+for (const [id, key, read] of SHAPE) {
+  const apply = () => { if (!LAST || tickOf(id).disabled) return; LAST.cfg[key] = read($(id).value); render(); };
+  $(id).oninput = shapeTicks;
+  $(id).onkeydown = e => { if (e.key === "Enter") apply(); };
+  tickOf(id).onclick = apply;
 }
 
 $("btnSave").onclick = () => {
