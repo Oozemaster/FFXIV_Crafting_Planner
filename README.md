@@ -12,7 +12,7 @@ built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older des
 of it that remain unbuilt.
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.16.26.3`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.19.26.1`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)
@@ -273,9 +273,10 @@ sellers      = count of distinct retainerName across realListings
 
 Anything above the cutoff is excluded from competition and shown as "overpriced".
 
-**Your own retainers** are named in the setup field (default `Spicy-soy, Momo-mochi`,
-matched case-insensitively). Their listings **count as supply whatever they are priced
-at**, above the junk cutoff included: ten of yours already on the board means ten fewer to
+**Your own retainers** are the names of the retainer sections under Your sales (section
+6a; since v09.19.26.1 — until then one setup field, default `Spicy-soy, Momo-mochi`).
+Each must be the name as the market board shows it, matched case-insensitively. Their
+listings **count as supply whatever they are priced at**, above the junk cutoff included: ten of yours already on the board means ten fewer to
 make, and repricing them is your call. They are never undercut (section 3) and never
 bought from (section 4). (The row was tagged "N yours listed" until 2026-09-16; the count
 is still in the row's data.)
@@ -416,7 +417,11 @@ shortage = floor((weeklyDemand - supply - incomingSupply) x (1 - safetyMargin))
 For an item with no earlier reading to measure from, `incomingSupply` is 0, so it comes out
 exactly as it did before. (The row was tagged "inflow unmeasured", and a measured one
 "N/wk incoming", until 2026-09-16; Shaun removed both — the figure is settled inside the
-quantity. It is still in the Supply cell's tooltip and the Listed/wk column on All items.)
+quantity.) Since v09.19.26.1 the bundle's Supply cell reads `1+3/wk vs 5/wk`: one unit
+listed now, about three a week being listed by others, against demand of five a week
+(Shaun, 2026-09-19: "I want the user to see the inflow and current listings"). An item
+with no earlier reading shows no inflow term, `1 vs 5/wk`, and its tooltip says why. The
+one-decimal rate is in the tooltip and in the Listed/wk column on All items.
 
 The margin covers everything the model still cannot see. It leaves a shortage open rather
 than closing it, on the reasoning that the marginal seller is the one who gets undercut.
@@ -452,21 +457,28 @@ listings above the cutoff at both readings; without the cut they read as 14 agai
 which happens to cancel, but a single new overpriced listing would have counted as a
 unit a week of incoming supply while counting as nothing in section 2.
 
-**Your own sales.** The setup panel has a table for them, copied from each retainer's Sale
-History window in game: the item, the price as shown there, quantity, buyer, and date and
-time. The window shows the price *after* tax, to the minute; Universalis records the price
-the buyer paid, to the second, with the buyer's name. So each row is matched against one
-recorded sale on quantity, on the minute, on the buyer if one was typed, and on price once
-the tax is added back (the "Tax on those sales" field, default 3%, which is what Shaun's
-sales clear at) — within one gil, because 59,999 and 60,000 both show as 58,200 at 3%.
-**A row that names an item is only tried against that item's sales** (Shaun, 2026-09-16;
-the Item column is a dropdown of every loaded recipe name that can also be typed in); a
-row with the item left blank is tried against every item's, as before. Rows are kept in
-the session file and, where the browser allows, remembered between visits. The status line
-after a scan says how many rows matched a recorded sale.
+**Your own sales.** The setup panel holds them under one section per retainer (since
+v09.19.26.1, 2026-09-19: the guild's retainers pay different tax). A section is added
+with **Add a retainer** and carries the retainer's name, its own "Tax on its sales" field,
+its own Add a sale and Add from a screenshot buttons, and a table of its sales copied from
+its Sale History window in game: the item, the price as shown there, quantity, buyer, and
+date and time. The first retainer's tax starts at 10%; each one added after copies the
+last one's. Removing a retainer asks first, then takes its sales with it. The window shows
+the price *after* tax, to the minute; Universalis records the price the buyer paid, to the
+second, with the buyer's name. So each row is matched against one recorded sale on
+quantity, on the minute, on the buyer if one was typed, and on price once **that
+retainer's** tax is added back — within one gil, because 59,999 and 60,000 both show as
+58,200 at 3%. **A row that names an item is only tried against that item's sales**
+(Shaun, 2026-09-16; the Item column is a dropdown of every loaded recipe name that can
+also be typed in); a row with the item left blank is tried against every item's, as
+before. Retainers and rows are kept in the session file and nowhere else: a fresh page
+starts with none, so nobody else who opens the tool sees your sales (until 2026-09-19 the
+browser remembered them between visits). The status line after a scan says how many rows
+matched a recorded sale.
 
 **Rows from a screenshot.** The window cannot be copied as text, so a screenshot of it —
-dropped on the table, pasted with Ctrl+V, or chosen with the button — is read by
+dropped on a retainer's section, pasted with Ctrl+V (into the section last clicked or
+typed in, else the first), or chosen with the section's button — is read by
 Tesseract (see Data sources) and its rows are added to the table as ordinary editable
 rows. The picture is scaled 2x and, being light text on a dark ground, inverted; each
 line is then read from the right: date and time (`M/D H:MM a.m.`, no year — this year,
@@ -580,7 +592,7 @@ Judgment calls, not game rules.
 | Minimum sales per week | 1 | Items below this are excluded. |
 | Staleness cutoff | 180 days | Items not uploaded within this period are excluded. |
 | Supply-age warning | 24 hours | Items not uploaded within this period are flagged in the row's data; the tag that showed it was removed 2026-09-16. |
-| Own retainers | Spicy-soy, Momo-mochi | Listings from these count as supply but are never undercut or bought from. Editable in the setup panel. |
+| Own retainers | none | The retainer sections under Your sales. Listings from these count as supply but are never undercut or bought from. |
 | Material price cap | 1.0x market price | No unit of material is ever charged above the median of its last 40 sales. |
 | Vendor-cheap threshold | 100 gil | Materials a vendor sells below this are classed as buy rather than gather. |
 | Priority bands | 50% / 80% | Cumulative share of a bundle's expected value. |
@@ -592,7 +604,7 @@ Judgment calls, not game rules.
 | Failed request retry | Once, after 3 seconds | A Universalis request that fails three times in a row is tried once more at the end of the scan. |
 | Incoming-supply gap | 14 days | The previous reading is the most recent one at least this old. Shorter periods read one seller's batch as a weekly rate. |
 | Listings fetched per craft | Up to 100 | Universalis' ceiling. Crafts are counted whole so the live count matches the tracker's. |
-| Tax on your own sales | 3% | What the Sale History window took off, added back to match your sales against Universalis. Separate from the 10% used for profit. |
+| Tax on your own sales | 10% for the first retainer; each after copies the last | Per retainer. What the Sale History window took off, added back to match that retainer's sales against Universalis. Separate from the 10% used for profit. |
 
 Fixed by the game: 10% sales tax; 40 listing slots per character.
 

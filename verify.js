@@ -166,6 +166,25 @@ const hqOnly = it => ({ ...it,
   await page.goto(PAGE);
 
   const stamp = await page.textContent(".stamp");
+  const mineAtStart = await page.inputValue("#mine");
+
+  // Two of Shaun's retainers, each with its own tax (2026-09-19): the first
+  // starts at 10% and is set to 3%; the second must copy the 3% and is set to
+  // 5%. A third is added and removed again, accepting the confirm, to check
+  // that the names field follows.
+  page.on("dialog", d => d.accept());
+  const addRetainer = async (name, tax) => {
+    await page.click("#btnAddRetainer");
+    const copied = await page.inputValue('.retainer:last-child [data-r="tax"]');
+    await page.fill('.retainer:last-child [data-r="name"]', name);
+    if (tax != null) await page.fill('.retainer:last-child [data-r="tax"]', String(tax));
+    return copied;
+  };
+  const firstTax = await addRetainer("Spicy-soy", 3);
+  const copiedTax = await addRetainer("Momo-mochi", 5);
+  const thirdTax = await addRetainer("Temp-one");
+  const mineWithThree = await page.inputValue("#mine");
+  await page.click('.retainer:last-child [data-r="del"]');
   const mineField = await page.inputValue("#mine");
 
   await page.click("#btnLoad");
@@ -176,28 +195,40 @@ const hqOnly = it => ({ ...it,
   // The Item dropdown fills from the loaded recipes.
   const itemOptions = await page.$$eval("#itemNames option", os => os.map(o => o.value));
 
-  // One of Shaun's own sales, as the Sale History window would show it.
-  await page.click("#btnAddSale");
-  await page.fill('#ownSalesBody tr:last-child [data-f="item"]', OWN_SALE.item);
-  await page.fill('#ownSalesBody tr:last-child [data-f="price"]', OWN_SALE.price);
-  await page.fill('#ownSalesBody tr:last-child [data-f="qty"]', OWN_SALE.qty);
-  await page.fill('#ownSalesBody tr:last-child [data-f="buyer"]', OWN_SALE.buyer);
+  // One of Shaun's own sales, as the Sale History window would show it, under
+  // the first retainer: 19,400 is 20,000 after 3%, so it matches only if the
+  // tax comes from that retainer's field and not the second's 5%.
+  const ROW = '.retainer:first-child tbody tr:last-child ';
+  await page.click('.retainer:first-child [data-r="add"]');
+  await page.fill(ROW + '[data-f="item"]', OWN_SALE.item);
+  await page.fill(ROW + '[data-f="price"]', OWN_SALE.price);
+  await page.fill(ROW + '[data-f="qty"]', OWN_SALE.qty);
+  await page.fill(ROW + '[data-f="buyer"]', OWN_SALE.buyer);
   const ownStamp = await page.evaluate(t => {
     const d = new Date(t * 1000), p = n => String(n).padStart(2, "0");
     return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + "T" + p(d.getHours()) + ":" + p(d.getMinutes());
   }, OWN_SALE.t);
-  await page.fill('#ownSalesBody tr:last-child [data-f="time"]', ownStamp);
-  await page.dispatchEvent('#ownSalesBody tr:last-child [data-f="time"]', "change");
+  await page.fill(ROW + '[data-f="time"]', ownStamp);
+  await page.dispatchEvent(ROW + '[data-f="time"]', "change");
   const ownSalesStatus = await page.textContent("#ownSalesStatus");
 
   // The item rule on its own: a row that names an item is only tried against
   // that item's sales. One sale, one row that fits it on every other field.
   const itemRule = await page.evaluate(() => {
     const sale = [{ q: 1, t: 1000000, p: 20000, buyer: "Old-20" }];
-    const row = item => [{ item, price: 19400, qty: 1, buyer: "Old-20", time: 1000000 * 1000 }];
-    return { named: removeOwnSales(sale, row("Test Wall"), 0.03, "Test Wall").matched,
-             other: removeOwnSales(sale, row("Test Rug"), 0.03, "Test Wall").matched,
-             blank: removeOwnSales(sale, row(""), 0.03, "Test Wall").matched };
+    const row = item => [{ item, price: 19400, qty: 1, buyer: "Old-20", time: 1000000 * 1000, tax: 0.03 }];
+    return { named: removeOwnSales(sale, row("Test Wall"), "Test Wall").matched,
+             other: removeOwnSales(sale, row("Test Rug"), "Test Wall").matched,
+             blank: removeOwnSales(sale, row(""), "Test Wall").matched };
+  });
+
+  // Each row carries its own retainer's tax (2026-09-19): 20,000 gross shows
+  // as 19,000 at 5% and as 19,400 at 3%, so 19,000 matches at 5% only.
+  const taxRule = await page.evaluate(() => {
+    const sale = () => [{ q: 1, t: 1000000, p: 20000, buyer: "Old-20" }];
+    const row = tax => [{ item: "Test Wall", price: 19000, qty: 1, buyer: "Old-20", time: 1000000 * 1000, tax }];
+    return { at5: removeOwnSales(sale(), row(0.05), "Test Wall").matched,
+             at3: removeOwnSales(sale(), row(0.03), "Test Wall").matched };
   });
 
   // The screenshot reader's parser, on lines exactly as Tesseract returned
@@ -259,10 +290,13 @@ const hqOnly = it => ({ ...it,
   const hq = await scan();
 
   console.log("version stamp      :", stamp);
-  console.log("own-retainer field :", JSON.stringify(mineField));
+  console.log("own-retainer field :", JSON.stringify(mineField), "(page start " + JSON.stringify(mineAtStart) +
+              ", with a third " + JSON.stringify(mineWithThree) + ")");
+  console.log("retainer tax       : first " + firstTax + ", second copied " + copiedTax + ", third copied " + thirdTax + " (want 10, 3, 5)");
   console.log("own sales entered  :", JSON.stringify(ownSalesStatus));
   console.log("item dropdown      :", JSON.stringify(itemOptions));
   console.log("item rule matched  :", JSON.stringify(itemRule), "(want named 1, other 0, blank 1)");
+  console.log("tax rule matched   :", JSON.stringify(taxRule), "(want at5 1, at3 0)");
   console.log("screenshot lines   :");
   for (const l of parsed) console.log("   -", l);
   for (const [label, r] of [["HQ only OFF", nq], ["HQ only ON", hq]]) {

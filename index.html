@@ -64,6 +64,8 @@
   .tabs button.on { color:var(--ink); border-bottom-color:var(--accent); }
   .tabs button .n { font-weight:400; opacity:.6; margin-left:5px; }
   .tablewrap { overflow-x:auto; }
+  .retainer + .retainer { margin-top:18px; }
+  .retainer .row { margin-top:0; margin-bottom:6px; }
   table { border-collapse:collapse; width:100%; font-size:13.5px; }
   th,td { text-align:right; padding:8px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
   th:first-child,td:first-child,th.l,td.l { text-align:left; }
@@ -109,7 +111,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.16.26.3</span></p>
+    <span class="stamp">v09.19.26.1</span></p>
 </header>
 
 <div class="panel">
@@ -127,32 +129,32 @@
     <div><label class="field" for="margin">Safety margin %</label><input type="number" id="margin" value="20" min="0" max="90" step="5"></div>
     <div><label class="field" for="hqonly">Quality</label>
       <label class="check" title="Sell as high quality. For any craft that can be HQ, its price, demand and supply come from HQ sales and HQ listings alone. Materials are unaffected: you buy whichever quality is cheapest. Crafts with no HQ version behave as normal."><input type="checkbox" id="hqonly"> HQ only</label></div>
-    <div class="wide"><label class="field" for="mine">Your own retainers (counted as listed, never undercut)</label>
-      <input type="text" id="mine" placeholder="Spicy-soy, Momo-mochi" value="Spicy-soy, Momo-mochi"></div>
   </div>
+  <!-- Your own retainers, joined from the retainer sections below. Kept as a
+       field because the scan and the session file read the names as one
+       (Shaun, 2026-09-19); nothing shows it. -->
+  <input type="hidden" id="mine" value="">
 
-  <!-- Your own sales, copied from each retainer's Sale History in game. The
-       incoming-supply figure counts every sale on the board between two readings
-       as somebody else's listing that sold; these rows take yours back out. -->
+  <!-- Your own sales, copied from each retainer's Sale History in game, one
+       section per retainer because the guild's retainers pay different tax
+       (Shaun, 2026-09-19). The incoming-supply figure counts every sale on the
+       board between two readings as somebody else's listing that sold; these
+       rows take yours back out. The retainer names double as the list of your
+       own listings, which count as supply and are never undercut. -->
   <div id="ownSalesBox">
   <div class="sub" style="margin-top:20px;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600">Your sales</div>
-  <div class="hint" style="margin-top:0;margin-bottom:8px">From each retainer's Sale History window: the item, the price as it shows there (after tax),
+  <div class="hint" style="margin-top:0;margin-bottom:8px">Add each retainer by the name the market board shows; its listings count as supply and are never undercut.
+    Under it, from its Sale History window: the item, the price as it shows there (after that retainer's tax),
     the buyer, and the date and time to the minute. Sales listed here are not counted as competitors' supply.
-    A screenshot of the window can be dropped here, pasted (Ctrl+V), or chosen with the button; its rows are read and added for you to check.</div>
-  <div class="tablewrap"><table id="ownSales"><thead><tr>
-    <th class="l">Item</th><th class="l">Price shown</th><th class="l">Qty</th><th class="l">Buyer</th><th class="l">Date and time</th><th></th>
-  </tr></thead><tbody id="ownSalesBody"></tbody></table></div>
+    A screenshot of the window can be dropped on the retainer, pasted (Ctrl+V) into the one last clicked, or chosen with its button; its rows are read and added for you to check.
+    None of this is kept when the page is closed; a session file carries it.</div>
+  <div id="retainers"></div>
   <!-- Item names for the row's dropdown, filled once recipes are loaded. -->
   <datalist id="itemNames"></datalist>
   <div class="row" style="margin-top:8px">
-    <button id="btnAddSale" class="secondary small" type="button">Add a sale</button>
-    <button id="btnSaleShot" class="secondary small" type="button" title="Read the rows off a screenshot of the Sale History window">Add from a screenshot</button>
+    <button id="btnAddRetainer" class="secondary small" type="button">Add a retainer</button>
     <input type="file" id="saleShot" accept="image/*" multiple hidden>
-    <label class="check" for="owntax" style="padding:0;gap:8px;font-size:13px;color:var(--muted)"
-      title="The Sale History window shows what you received, after the market tax. The tool adds it back to match the sale against Universalis, which records what the buyer paid.">
-      Tax on those sales %<input type="number" id="owntax" value="3" min="0" max="25" style="width:64px;padding:4px 8px"></label>
     <span class="status" id="ownSalesStatus"></span>
-    <span class="status" id="shotStatus"></span>
   </div>
   </div>
   <div class="row">
@@ -903,7 +905,7 @@ function weeklyDemand(history, nowSec) {
 // the scan, because Universalis knows nothing after it.
 const INFLOW_DAYS = 14;
 
-function incomingSupply(m, quality, median, readings, ownSales, ownTax, itemName) {
+function incomingSupply(m, quality, median, readings, ownSales, itemName) {
   const at = m.updated;
   const before = readings.filter(r => r.at < at);
   if (!before.length) return { known: false, why: readings.length ? "same reading" : "no reading" };
@@ -923,7 +925,7 @@ function incomingSupply(m, quality, median, readings, ownSales, ownTax, itemName
   // is a floor.
   const oldest = (m.history || []).reduce((a, h) => Math.min(a, h.t * 1000), Infinity);
   const truncated = (m.history || []).length >= 200 && oldest > prev.at;
-  const own = removeOwnSales(sales, ownSales, ownTax, itemName);
+  const own = removeOwnSales(sales, ownSales, itemName);
   const bought = own.remaining.reduce((a, h) => a + h.q, 0);
 
   const raw = newUnits - prevUnits + bought;
@@ -939,13 +941,14 @@ function incomingSupply(m, quality, median, readings, ownSales, ownTax, itemName
 // the minute; Universalis has the price the buyer paid, to the second, and the
 // buyer's name. So a sale matches on quantity, on the minute, on the buyer if
 // one was typed, and on price once the tax is added back — within a gil,
-// because 59,999 and 60,000 both show as 58,200 at 3%. Each row you enter
-// takes out one sale at most. A row that names an item is only tried against
-// that item's sales (Shaun, 2026-09-16); a row with no name is tried against
-// every item's, as before.
+// because 59,999 and 60,000 both show as 58,200 at 3%. The tax is the row's
+// own: each retainer's sales carry the rate that retainer paid (Shaun,
+// 2026-09-19). Each row you enter takes out one sale at most. A row that
+// names an item is only tried against that item's sales (Shaun, 2026-09-16);
+// a row with no name is tried against every item's, as before.
 const sameName = (a, b) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
 
-function removeOwnSales(sales, ownSales, tax, itemName) {
+function removeOwnSales(sales, ownSales, itemName) {
   const used = new Set();
   let matched = 0;
   for (const o of (ownSales || [])) {
@@ -954,7 +957,7 @@ function removeOwnSales(sales, ownSales, tax, itemName) {
       s.q === o.qty &&
       Math.floor(s.t / 60) === Math.floor(o.time / 60000) &&
       (!o.buyer || s.buyer.trim().toLowerCase() === o.buyer.trim().toLowerCase()) &&
-      Math.abs(s.p * (1 - tax) - o.price) <= 1);
+      Math.abs(s.p * (1 - (o.tax || 0)) - o.price) <= 1);
     if (i >= 0) { used.add(i); matched += sales[i].q; }
   }
   return { matched, remaining: sales.filter((s, k) => !used.has(k)) };
@@ -1008,7 +1011,7 @@ function buildCandidates(pool, cfg) {
     // Incoming supply on the same quality as price, demand and supply, and with
     // the same junk cutoff as supply, off the same median.
     const inflow = incomingSupply(m, hqRec ? "hq" : "nq", p.median, READINGS.readingsFor(r.itemId),
-                                  cfg.ownSales, cfg.ownTax, r.name);
+                                  cfg.ownSales, r.name);
 
     // Nothing caps quantity any more. Every world in the region is reachable, so
     // a material is never unobtainable — only dearer, and the ladder handles that.
@@ -1314,6 +1317,9 @@ function render() {
             Math.max(0, r.demand - r.supply - (r.inflow || 0)).toFixed(1) + ', of which at most ' +
             safeUnits(r.demand, r.supply, r.inflow, LAST.cfg.margin == null ? 0.2 : LAST.cfg.margin) +
             ' should be filled after the safety margin.">' + r.supply + (r.clipped ? '+' : '') +
+            // "1+3/wk vs 5/wk": listed now, plus what others list in a week,
+            // against demand (Shaun, 2026-09-19). No earlier reading, no term.
+            (r.inflowInfo && r.inflowInfo.known ? '+' + r.inflow.toFixed(0) + '/wk' : '') +
             ' <span style="color:var(--muted)">vs ' + r.demand.toFixed(0) + '/wk</span></td>' +
           '<td title="At market price the materials come to ' + gil(r.cost) +
             ' per unit, which is what the ranking used. This is what they cost per unit for the ' +
@@ -1401,12 +1407,16 @@ function render() {
 // ---------------------------------------------------------------------------
 // Your sales
 //
-// One row per sale from the Sale History window: item, price as shown,
-// quantity, buyer, date and time to the minute. Kept in the session file and,
-// where the browser allows, remembered between visits. A sale stays useful for
-// as long as its period is inside a reading pair, so nothing is expired here.
+// One section per retainer, each with the tax its sales cleared at, because
+// the guild's retainers pay different rates (Shaun, 2026-09-19). Under it,
+// one row per sale from the Sale History window: item, price as shown,
+// quantity, buyer, date and time to the minute. The retainer names are also
+// the list of your own listings (the hidden #mine field, MY_RETAINERS).
+// Kept in the session file and nowhere else: a fresh page starts empty, so
+// nobody else who opens the tool sees your sales (Shaun, 2026-09-19). A sale
+// stays useful for as long as its period is inside a reading pair, so nothing
+// is expired here.
 // ---------------------------------------------------------------------------
-const OWN_SALES_KEY = "ffxiv-planner-own-sales";
 
 // datetime-local wants local time as YYYY-MM-DDTHH:MM; the game shows local time.
 const localStamp = ms => {
@@ -1423,7 +1433,83 @@ function fillItemNames(names) {
   $("itemNames").innerHTML = ITEM_NAMES.map(n => '<option value="' + esc(n) + '">').join("");
 }
 
-function addOwnSale(s) {
+const $r = (sec, k) => sec.querySelector('[data-r="' + k + '"]');
+const retainerSections = () => [...$("retainers").querySelectorAll(".retainer")];
+// The section last clicked or typed in: where a pasted screenshot goes.
+let ACTIVE_RETAINER = null;
+// Where a screenshot lands when nothing says: the section last used, else the first.
+const targetRetainer = () => (ACTIVE_RETAINER && ACTIVE_RETAINER.isConnected) ? ACTIVE_RETAINER : (retainerSections()[0] || null);
+// A blank tax field reads as the page's default, as the profit tax does.
+const taxOf = sec => { const v = $r(sec, "tax").value.trim(); return (v === "" || isNaN(+v) ? 10 : +v) / 100; };
+
+function addRetainer(r) {
+  r = r || {};
+  const secs = retainerSections();
+  // The first retainer starts at 10%; each one after copies the last (Shaun, 2026-09-19).
+  const tax = r.tax != null ? Math.round(r.tax * 100) : (secs.length ? $r(secs[secs.length - 1], "tax").value : 10);
+  const sec = document.createElement("div");
+  sec.className = "retainer";
+  sec.innerHTML =
+    '<div class="row">' +
+      '<label class="check" style="padding:0;gap:8px;font-size:13px;color:var(--muted)" title="The name as the market board shows it. Its listings count as supply and are never undercut or bought from.">' +
+        'Retainer<input type="text" data-r="name" placeholder="Spicy-soy" style="width:180px;padding:4px 8px"></label>' +
+      '<label class="check" style="padding:0;gap:8px;font-size:13px;color:var(--muted)" title="The Sale History window shows what you received, after the market tax. The tool adds it back to match the sale against Universalis, which records what the buyer paid.">' +
+        'Tax on its sales %<input type="number" data-r="tax" min="0" max="25" style="width:64px;padding:4px 8px"></label>' +
+      '<button type="button" class="secondary small" data-r="add">Add a sale</button>' +
+      '<button type="button" class="secondary small" data-r="shot" title="Read the rows off a screenshot of this retainer\'s Sale History window">Add from a screenshot</button>' +
+      '<button type="button" class="secondary small" data-r="del" title="Remove this retainer and its sales">&times;</button>' +
+      '<span class="status" data-r="shotStatus"></span>' +
+    '</div>' +
+    '<div class="tablewrap"><table><thead><tr>' +
+      '<th class="l">Item</th><th class="l">Price shown</th><th class="l">Qty</th><th class="l">Buyer</th><th class="l">Date and time</th><th></th>' +
+    '</tr></thead><tbody data-r="body"></tbody></table></div>';
+  $r(sec, "name").value = r.name || "";
+  $r(sec, "tax").value = tax;
+  $r(sec, "name").oninput = syncRetainers;
+  $r(sec, "tax").onchange = rememberOwnSales;
+  $r(sec, "add").onclick = () => { addOwnSale(sec).querySelector("input").focus(); };
+  $r(sec, "shot").onclick = () => { ACTIVE_RETAINER = sec; $("saleShot").click(); };
+  $r(sec, "del").onclick = () => removeRetainer(sec);
+  sec.addEventListener("mousedown", () => { ACTIVE_RETAINER = sec; });
+  sec.addEventListener("focusin", () => { ACTIVE_RETAINER = sec; });
+  sec.ondragover = e => e.preventDefault();
+  sec.ondrop = e => { e.preventDefault(); e.stopPropagation(); importSaleShots(e.dataTransfer.files, sec); };
+  for (const s of (r.sales || [])) addOwnSale(sec, s);
+  $("retainers").appendChild(sec);
+  syncRetainers();
+  return sec;
+}
+
+// Its sales go with it, after a yes (Shaun, 2026-09-19).
+function removeRetainer(sec) {
+  const name = $r(sec, "name").value.trim() || "this retainer";
+  const n = $r(sec, "body").querySelectorAll("tr").length;
+  if (!confirm("Remove " + name + (n ? " and its " + n + " sale" + (n > 1 ? "s" : "") : "") + "?")) return;
+  sec.remove();
+  syncRetainers();
+}
+
+// The names, joined, are the hidden #mine field the scan reads its own
+// listings from. Runs on every add, remove and keystroke in a name.
+function syncRetainers() {
+  $("mine").value = retainerSections().map(s => $r(s, "name").value.trim()).filter(Boolean).join(", ");
+  setMyRetainers($("mine").value);
+  rememberOwnSales();
+}
+
+function readRetainers() {
+  return retainerSections().map(s => ({ name: $r(s, "name").value.trim(), tax: taxOf(s) }));
+}
+
+// Rebuild the sections: each entry is a retainer with its tax and its sales.
+function setRetainers(list) {
+  $("retainers").innerHTML = "";
+  ACTIVE_RETAINER = null;
+  for (const r of (list || [])) addRetainer(r);
+  syncRetainers();
+}
+
+function addOwnSale(sec, s) {
   s = s || {};
   const tr = document.createElement("tr");
   tr.innerHTML =
@@ -1435,45 +1521,31 @@ function addOwnSale(s) {
     '<td><button type="button" class="secondary small" data-del title="Remove this row">&times;</button></td>';
   tr.querySelector("[data-del]").onclick = () => { tr.remove(); rememberOwnSales(); };
   tr.querySelectorAll("input").forEach(i => i.onchange = rememberOwnSales);
-  $("ownSalesBody").appendChild(tr);
+  $r(sec, "body").appendChild(tr);
   return tr;
 }
 
-// Rows with a price and a time; the rest are ignored, not errors.
-function readOwnSales() {
+// Rows with a price and a time; the rest are ignored, not errors. Each row
+// carries its retainer's name and tax. One section, or all of them.
+function readOwnSales(sec) {
   const out = [];
-  for (const tr of $("ownSalesBody").querySelectorAll("tr")) {
-    const v = f => tr.querySelector('[data-f="' + f + '"]').value;
-    const price = +v("price"), time = v("time") ? new Date(v("time")).getTime() : 0;
-    if (!(price > 0) || !time) continue;
-    out.push({ item: v("item").trim(), price, qty: Math.max(1, +v("qty") || 1), buyer: v("buyer").trim(), time });
+  for (const s of (sec ? [sec] : retainerSections())) {
+    const retainer = $r(s, "name").value.trim(), tax = taxOf(s);
+    for (const tr of $r(s, "body").querySelectorAll("tr")) {
+      const v = f => tr.querySelector('[data-f="' + f + '"]').value;
+      const price = +v("price"), time = v("time") ? new Date(v("time")).getTime() : 0;
+      if (!(price > 0) || !time) continue;
+      out.push({ item: v("item").trim(), price, qty: Math.max(1, +v("qty") || 1), buyer: v("buyer").trim(), time, retainer, tax });
+    }
   }
   return out;
 }
 
-function setOwnSales(list, tax) {
-  $("ownSalesBody").innerHTML = "";
-  for (const s of (list || [])) addOwnSale(s);
-  if (tax != null) $("owntax").value = Math.round(tax * 100);
-}
-
-// The browser forbids localStorage for a page opened as a data: URL, and a
-// private window may refuse it. Either way the session file still carries it.
 function rememberOwnSales() {
-  const sales = readOwnSales();
-  $("ownSalesStatus").textContent = sales.length ? sales.length + " sale" + (sales.length > 1 ? "s" : "") + " entered" : "";
-  try { localStorage.setItem(OWN_SALES_KEY, JSON.stringify({ sales, tax: $("owntax").value })); } catch (e) {}
+  const n = readOwnSales().length;
+  $("ownSalesStatus").textContent = n ? n + " sale" + (n > 1 ? "s" : "") + " entered" : "";
 }
-function recallOwnSales() {
-  try {
-    const d = JSON.parse(localStorage.getItem(OWN_SALES_KEY) || "null");
-    if (d && Array.isArray(d.sales)) { setOwnSales(d.sales); if (d.tax !== "" && d.tax != null) $("owntax").value = d.tax; }
-  } catch (e) {}
-  rememberOwnSales();
-}
-$("btnAddSale").onclick = () => { addOwnSale().querySelector("input").focus(); };
-$("owntax").onchange = rememberOwnSales;
-recallOwnSales();
+$("btnAddRetainer").onclick = () => { $r(addRetainer(), "name").focus(); };
 
 // ---------------------------------------------------------------------------
 // Sales from a screenshot
@@ -1670,10 +1742,12 @@ function editDistance(a, b) {
 const saleKey = s => [String(s.item || "").toLowerCase(), s.price, s.qty, String(s.buyer || "").toLowerCase(),
                       Math.floor(s.time / 60000)].join("|");
 
-async function importSaleShots(files) {
+async function importSaleShots(files, sec) {
   const shots = [...files].filter(f => f.type.startsWith("image/"));
   if (!shots.length) return;
-  const say = m => { $("shotStatus").textContent = m; };
+  if (!sec) { $("ownSalesStatus").textContent = "Add a retainer first, then give it the screenshot."; return; }
+  ACTIVE_RETAINER = sec;
+  const say = m => { $r(sec, "shotStatus").textContent = m; };
   OCR_PROGRESS = m => {
     if (m.status === "recognizing text") say("Reading the screenshot… " + Math.round(m.progress * 100) + "%");
     else if (/load|initial/i.test(m.status || "")) say("Loading the text reader (first time only)…");
@@ -1684,7 +1758,7 @@ async function importSaleShots(files) {
     // covers what Shaun sells.
     if (!ITEM_NAMES.length) fillItemNames(await READINGS.names());
     const have = {};
-    for (const r of readOwnSales()) { const k = saleKey(r); have[k] = (have[k] || 0) + 1; }
+    for (const r of readOwnSales(sec)) { const k = saleKey(r); have[k] = (have[k] || 0) + 1; }
     let read = 0, added = 0, already = 0, stacks = 0;
     for (const f of shots) {
       const img = await createImageBitmap(f);
@@ -1706,7 +1780,7 @@ async function importSaleShots(files) {
         read++;
         const k = saleKey(s);
         if (have[k] > 0) { have[k]--; already++; continue; }
-        addOwnSale(s); added++;
+        addOwnSale(sec, s); added++;
       }
     }
     rememberOwnSales();
@@ -1717,13 +1791,14 @@ async function importSaleShots(files) {
   } catch (e) { say("Could not read the screenshot: " + (e.message || e)); }
 }
 
-$("btnSaleShot").onclick = () => $("saleShot").click();
-$("saleShot").onchange = e => { importSaleShots(e.target.files); e.target.value = ""; };
+// The button sets its own section first; a paste, or a drop outside any
+// section, goes to the section last used, else the first (Shaun, 2026-09-19).
+$("saleShot").onchange = e => { importSaleShots(e.target.files, targetRetainer()); e.target.value = ""; };
 $("ownSalesBox").ondragover = e => e.preventDefault();
-$("ownSalesBox").ondrop = e => { e.preventDefault(); importSaleShots(e.dataTransfer.files); };
+$("ownSalesBox").ondrop = e => { e.preventDefault(); importSaleShots(e.dataTransfer.files, targetRetainer()); };
 document.addEventListener("paste", e => {
   const files = [...(e.clipboardData ? e.clipboardData.files : [])].filter(f => f.type.startsWith("image/"));
-  if (files.length) { e.preventDefault(); importSaleShots(files); }
+  if (files.length) { e.preventDefault(); importSaleShots(files, targetRetainer()); }
 });
 
 // ---------------------------------------------------------------------------
@@ -1741,8 +1816,11 @@ document.addEventListener("paste", e => {
 // one per mode; its "buy" figure was computed the same way, so old files are
 // converted losslessly on load. Format 4 (v09.15.26.1) adds incoming supply to
 // each row and your own sales to the settings; a format 3 file loads with
-// incoming supply unknown and no sales, which the rows say.
-const FORMAT = 4;
+// incoming supply unknown and no sales, which the rows say. Format 5
+// (v09.19.26.1) carries your retainers with a tax each, and each sale names
+// its retainer; a format 4 file's one list of names and one tax become
+// retainers at that tax, its sales under the first.
+const FORMAT = 5;
 
 function collectIds(rows) {
   const ids = new Set();
@@ -1801,12 +1879,24 @@ function applySession(d) {
   if (c.maxPer) $("maxper").value = c.maxPer;
   if (c.tax != null) $("tax").value = Math.round(c.tax * 100);
   if (c.staleDays) $("stale").value = c.staleDays;
-  if (c.mine != null) { $("mine").value = c.mine; setMyRetainers(c.mine); }
   if (c.minPrice != null) $("minprice").value = c.minPrice;
   if (c.minSales != null) $("minsales").value = c.minSales;
   if (c.margin != null) $("margin").value = Math.round(c.margin * 100);
   $("hqonly").checked = !!c.hq;
-  if (c.ownSales) { setOwnSales(c.ownSales, c.ownTax); rememberOwnSales(); }
+  // Retainers, each with its tax, and the flat sales list handed back to them
+  // by name. Format 4 and older: one field of names, one tax, no names on
+  // the sales, so those go under the first retainer.
+  if (c.retainers) {
+    const taken = new Set();
+    setRetainers(c.retainers.map(r => {
+      const sales = (c.ownSales || []).filter((s, k) => !taken.has(k) && sameName(s.retainer, r.name) && taken.add(k));
+      return { name: r.name, tax: r.tax, sales };
+    }));
+  } else {
+    const names = String(c.mine || "").split(/[,;]/).map(s => s.trim()).filter(Boolean);
+    if (!names.length && (c.ownSales || []).length) names.push("");
+    setRetainers(names.map((name, i) => ({ name, tax: c.ownTax != null ? c.ownTax : 0.10, sales: i ? [] : (c.ownSales || []) })));
+  }
 
   // Show the categories this scan used, so the page reads consistently.
   const cats = d.categories || [];
@@ -1955,9 +2045,10 @@ $("btnScan").onclick = async () => {
       margin: (+$("margin").value >= 0 ? +$("margin").value : 20) / 100,
       hq: $("hqonly").checked,
       mine: $("mine").value.trim(),
-      // Your own sales and the tax the Sale History window took off them.
-      ownSales: readOwnSales(),
-      ownTax: ($("owntax").value.trim() === "" || isNaN(+$("owntax").value) ? 3 : +$("owntax").value) / 100 };
+      // Your retainers, the tax each one's sales cleared at, and the sales
+      // themselves, each carrying its retainer's name and tax.
+      retainers: readRetainers(),
+      ownSales: readOwnSales() };
 
     // Must happen before anything is fetched: loadMarket drops these listings as
     // it reads them, so the set has to be in place first.
