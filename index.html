@@ -112,7 +112,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.19.26.5</span></p>
+    <span class="stamp">v09.19.26.6</span></p>
 </header>
 
 <div class="panel">
@@ -1961,6 +1961,19 @@ function applySession(d) {
   }
   LAST = { rows: d.rows || [], cfg: c, names };
   render();
+}
+
+// The bundle shape can change without a scan (Shaun, 2026-09-19): bundles to
+// make, slots per bundle, Max of one item and the safety margin only feed the
+// allocator, so a change re-plans the last scan in place, read exactly as the
+// scan would read the field. World, quality, tax, the filters and the recipe
+// level change what is fetched or what passes, and still need a scan.
+for (const [id, key, read] of [
+    ["pf", "portfolios", v => +v || 5],
+    ["slots", "slots", v => +v || 20],
+    ["maxper", "maxPer", v => +v || 10],
+    ["margin", "margin", v => (+v >= 0 ? +v : 20) / 100]]) {
+  $(id).onchange = () => { if (!LAST) return; LAST.cfg[key] = read($(id).value); render(); };
 }
 
 $("btnSave").onclick = () => {
