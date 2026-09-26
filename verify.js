@@ -415,6 +415,16 @@ const hqOnly = it => ({ ...it,
   reapply.minSales82 = await page.evaluate(() => LAST.rows.map(r => r.name + " " + r.demand.toFixed(1)).sort());
   await page.fill("#minsales", "1");
   await page.click("#btnReapply");
+  // Blacklist (2026-09-26): an item on it is never a candidate. Put Test Rug
+  // on it for this check, apply, and take it off again.
+  await page.evaluate(() => { BLACKLIST[9003] = ["Test Rug", "test", "2026-09-26"]; });
+  await page.fill("#minsales", "2");
+  await page.click("#btnReapply");
+  reapply.blacklisted = await page.evaluate(() => LAST.rows.map(r => r.name).sort());
+  await page.evaluate(() => { delete BLACKLIST[9003]; });
+  await page.fill("#minsales", "1");
+  await page.click("#btnReapply");
+  reapply.unblacklisted = await page.evaluate(() => LAST.rows.length);
 
   await page.check("#hqonly");
   const hq = await scan();
@@ -469,7 +479,7 @@ const hqOnly = it => ({ ...it,
               "(want placed = allowed, field = bundles, fieldShut true, statusSame true, off keeps the count and opens the field)");
   console.log("teamcraft export   :", JSON.stringify(tc));
   console.log("apply to last scan :", JSON.stringify(reapply),
-              "(want greyWithNoChange true, names Test Ingot/Lamp/Wall, hqKept false, status names HQ only, newRequests 0, restored 5, minSales82 without Test Ring)");
+              "(want greyWithNoChange true, names Test Ingot/Lamp/Wall, hqKept false, status names HQ only, newRequests 0, restored 5, minSales82 without Test Ring, blacklisted without Test Rug, unblacklisted 5)");
   console.log("nothing cleared    :", JSON.stringify(nothing), "(want status Nothing cleared, greyUntilChanged true, litWhenLoosened true, 5 rows after applying)");
   console.log("stacks and junk    :", JSON.stringify(stackRows),
               "(want Ingot stack 20, every other 1; Wall supply 2.5 (own listing out, junk at half) and Lamp 1)");

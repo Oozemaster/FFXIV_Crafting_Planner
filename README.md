@@ -35,7 +35,7 @@ built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older des
 of it that remain unbuilt.
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.26.26.10`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.26.26.11`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)
@@ -717,6 +717,21 @@ Bundles to make or Max, Slots per bundle, Max of one item, Overflow. A duty row 
 Supply, the estimated **Time** for that many, Expected and a Made tally. **The gil cost of the time is used only to sort** (Shaun: "The cost in the tool should still display the time, not the gil"): Expected, the bundle's worth and the total show what the items sell for after tax, and on All items the Mats each column shows the time; how and where to
 get it is left to the wiki. Duty items are not in the materials tabs. Export To Teamcraft
 includes them. The tracker watches them, reading the ids from the same line of the page.
+
+### 8b. Blacklist
+
+Items the planner never offers, kept by hand in `BLACKLIST` in index.html (Shaun,
+2026-09-26): he names an item as he finds it — fraud, gil laundering, or simply too
+difficult to craft — and it is added with a note. A blacklisted item is left out of every
+scan (the status line counts them) and of every loaded session, including sessions saved
+before it was added; it is still priced where it is another craft's material. Removing an
+item from the list brings it back at the next scan.
+
+| Item | ID | Why | Added |
+|---|---:|---|---|
+| Copper Ring | 4422 | Gil laundering: sold at 50 and 240 million gil; a merchant sells it for 170 | 2026-09-26 |
+| Brass Ring | 4430 | Gil laundering | 2026-09-26 |
+| Copper Gorget | 4305 | Gil laundering | 2026-09-26 |
 
 ### 9. Priority bands
 

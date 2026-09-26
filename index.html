@@ -120,7 +120,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.26.26.10</span></p>
+    <span class="stamp">v09.26.26.11</span></p>
 </header>
 
 <div class="panel">
@@ -269,6 +269,17 @@
 // a material is priced at the flat market rate rather than walked up a listing
 // ladder, since you are not buying it. It is never free: whatever you farm you
 // could have sold instead.
+// Blacklist (Shaun, 2026-09-26): items never offered, kept by hand as he flags
+// them — fraud, gil laundering, or simply too hard to craft. A blacklisted
+// item is left out of every scan and every loaded session; it is still priced
+// where it is another craft's material. itemId: [name, why, date added].
+const BLACKLIST = {
+  4422: ["Copper Ring", "Used for gil laundering: sold at 50 and 240 million gil, and a merchant sells it for 170.", "2026-09-26"],
+  4430: ["Brass Ring", "Used for gil laundering.", "2026-09-26"],
+  4305: ["Copper Gorget", "Used for gil laundering.", "2026-09-26"]
+};
+const blacklisted = id => Object.prototype.hasOwnProperty.call(BLACKLIST, id);
+
 const MANUAL_NOTES = {
   "Spruce Log":   { tag: "Unspoiled Node", note: "Unspoiled node — Botanist" },
   "Sylphic Silk": { tag: "Allied Society", note: "Bought from the Sylph allied society vendor, not gathered" },
@@ -1076,6 +1087,7 @@ const perSlot = r => r.margin * stackOf(r);
 function buildCandidates(pool, cfg) {
   const rows = [], now = Date.now();
   for (const r of pool) {
+    if (blacklisted(r.itemId)) continue;
     // A craft sold as HQ has its own HQ-only record; everything else is priced
     // as normal quality from the plain one.
     const hqRec = HQMARKET.get(r.itemId);
@@ -2189,7 +2201,9 @@ function applySession(d) {
   }
   // The rows as saved are kept apart, so tightening a filter and then easing
   // it back returns to them (v09.26.26.9).
-  LAST = { rows: d.rows || [], cfg: c, names, saved: d.rows || [], savedCfg: c, savedAt: Date.parse(d.saved) || Date.now() };
+  // A session saved before an item was blacklisted still leaves it out.
+  const saved = (d.rows || []).filter(r => !blacklisted(r.itemId));
+  LAST = { rows: saved, cfg: c, names, saved, savedCfg: c, savedAt: Date.parse(d.saved) || Date.now() };
   render();
   markApplied();
 }
@@ -2429,6 +2443,7 @@ function reapplySaved() {
   const duty = new Map(dutyCandidates(dutyLevel).map(d => [d.itemId, d]));
   const rows = [];
   for (const r0 of base) {
+    if (blacklisted(r0.itemId)) continue;
     const r = { ...r0 };
     if (r.duty) {
       // The duty list is in the page, so a lower Duty Level re-times the item.
@@ -2507,6 +2522,8 @@ $("btnScan").onclick = async () => {
       const inPool = new Set(pool.map(r => r.itemId));
       for (const d of dutyCandidates(dutyLevel)) if (!inPool.has(d.itemId)) { pool.push(d); dutyCount++; }
     }
+    const listedOut = pool.filter(r => blacklisted(r.itemId)).length;
+    for (let i = pool.length - 1; i >= 0; i--) if (blacklisted(pool[i].itemId)) pool.splice(i, 1);
     if (!pool.length) { setStatus("Tick at least one category, or Duty Items, first.", true); return; }
 
     const cfg = readCfg(dutyOn, dutyLevel);
@@ -2588,6 +2605,7 @@ $("btnScan").onclick = async () => {
     // the recipes in the ticked categories, `res.total` is those plus every
     // material in their trees, all of which need a price.
     let msg = rows.length + " of " + pool.length + " " + (dutyCount ? "items" : "recipes") + " passed the filters." +
+      (listedOut ? "  " + listedOut + " blacklisted left out." : "") +
       (dutyCount ? "  Duty items: " + rows.filter(r => r.duty).length + " of " + dutyCount + " at duty level " + dutyLevel +
                    " or below passed, their time costed at " + DUTY_RATE.toLocaleString() + " gil a minute." : "");
     // Incoming supply: how much of the result rests on a measurement.
