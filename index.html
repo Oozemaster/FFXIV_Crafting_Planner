@@ -121,11 +121,16 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.26.26.5</span></p>
+    <span class="stamp">v09.26.26.6</span></p>
 </header>
 
 <div class="panel">
-  <h2>Setup</h2>
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+    <h2>Setup</h2>
+    <!-- Filters and sorting again on the last scan's market data, no new
+         requests (Shaun, 2026-09-26: "adjust my filters after the scan"). -->
+    <button type="button" id="btnReapply" class="secondary small" disabled title="Sort and filter the last scan again with the settings as they are now, without scanning the market again. World, HQ only, Max recipe level, newly ticked categories and a higher Duty Level need a new scan.">&#10003; Apply to last scan</button>
+  </div>
   <div class="grid">
     <div><label class="field" for="world">World</label><input type="text" id="world" value="Seraph"></div>
     <div><label class="field" for="maxlvl">Max recipe level</label><input type="number" id="maxlvl" value="50" min="1" max="100"></div>
@@ -386,6 +391,7 @@ let LADDER = new Map();   // item id -> [{price, qty}] ascending. The cheapest l
                           // materials there may not be enough on the board at all.
 let CAN_HQ = new Set();   // item ids the game allows a high-quality version of
 let LAST = null, TAB = "pf";
+let LOADED_LEVEL = 50;    // Max recipe level at the last Load recipes
 let PROGRESS = { crafted: {}, gathered: {} };
 
 // ---------------------------------------------------------------------------
@@ -593,14 +599,22 @@ async function loadMarket(world, ids, onProgress, hqIds, fullIds) {
     }
   };
 
+  // Four requests at a time (2026-09-26). Measured that day on 400 uncached
+  // items, 25 a request: one at a time 7.25 s a request (Select All took about
+  // 45 minutes), four at once 1.58, eight at once 1.32 but with 6 of 16
+  // requests failing. Four is the most Universalis took without pushing back.
+  const CONCURRENT = 4;
   const failed = [];
-  for (const batch of batches) {
-    // A batch that will not load costs us those items, not the whole scan.
-    try { await fetchBatch(batch); } catch (e) { failed.push(batch); }
-    done += batch.ids.length;
-    onProgress(Math.min(done, total), total);
-    await sleep(120);            // stay well under the rate limit
-  }
+  let next = 0;
+  await Promise.all(Array.from({ length: CONCURRENT }, async () => {
+    while (next < batches.length) {
+      const batch = batches[next++];
+      // A batch that will not load costs us those items, not the whole scan.
+      try { await fetchBatch(batch); } catch (e) { failed.push(batch); }
+      done += batch.ids.length;
+      onProgress(Math.min(done, total), total);
+    }
+  }));
 
   // A batch that failed three times in a row almost always failed because
   // Universalis was busy at that moment, not because the items do not exist.
@@ -2177,6 +2191,7 @@ function applySession(d) {
   }
   LAST = { rows: d.rows || [], cfg: c, names };
   render();
+  $("btnReapply").disabled = true;
 }
 
 // The bundle shape can change without a scan (Shaun, 2026-09-19): bundles to
@@ -2279,6 +2294,7 @@ $("btnLoad").onclick = async () => {
     setBar(null);
     setStatus("Asking XIVAPI for every recipe at level " + maxLevel + " or below…");
     RECIPES = await loadRecipes(maxLevel);
+    LOADED_LEVEL = maxLevel;
     BY_ITEM = new Map(RECIPES.map(r => [r.itemId, r]));
     fillItemNames(RECIPES.flatMap(r => [r.name, ...r.ingredients.map(i => i.name)]));
     setStatus("Loading the gathering list…");
@@ -2341,6 +2357,86 @@ $("btnLoad").onclick = async () => {
   } finally { $("btnLoad").disabled = false; }
 };
 
+// Apply the settings to the last scan again (Shaun, 2026-09-26): the same
+// market data, filtered and sorted afresh. Only what the scan fetched can be
+// used, so a setting that needs other data is named and left as it was.
+function reapply() {
+  if (!LAST || !LAST.pool) {
+    setStatus("There is no market data to apply the settings to. A loaded session keeps its bundles, not the market; scan again.", true);
+    return;
+  }
+  const fetched = new Set(LAST.pool.map(r => r.itemId));
+  const needScan = [];
+  const chosen = new Set([...document.querySelectorAll("#cats input:checked")].map(i => i.value));
+  const inChosen = RECIPES.filter(r => chosen.has(r.category));
+  const pool = inChosen.filter(r => fetched.has(r.itemId));
+  if (pool.length < inChosen.length) needScan.push("categories ticked since the scan");
+  const dutyOn = $("xDuty").checked, dutyLevel = Math.max(1, +$("dutyLevel").value || 1);
+  if (dutyOn && !LAST.cfg.duty) needScan.push("Duty Items");
+  else if (dutyOn) {
+    const inPool = new Set(pool.map(r => r.itemId));
+    const want = dutyCandidates(dutyLevel).filter(d => !inPool.has(d.itemId));
+    const got = want.filter(d => fetched.has(d.itemId));
+    if (got.length < want.length) needScan.push("a Duty Level above " + LAST.cfg.dutyLevel);
+    pool.push(...got);
+  }
+  const cfg = readCfg(dutyOn && !!LAST.cfg.duty, dutyOn && LAST.cfg.duty ? dutyLevel : LAST.cfg.dutyLevel);
+  if (cfg.world !== LAST.cfg.world) { needScan.push("World"); cfg.world = LAST.cfg.world; }
+  if (cfg.hq !== LAST.cfg.hq) { needScan.push("HQ only"); cfg.hq = LAST.cfg.hq; }
+  if ((+$("maxlvl").value || 50) !== LOADED_LEVEL) needScan.push("Max recipe level (Load recipes, then scan)");
+  // Your retainers may have changed: flag their listings again, and rebuild
+  // the material prices, which never count your own.
+  setMyRetainers(cfg.mine);
+  for (const m of [...MARKET.values(), ...HQMARKET.values()]) for (const l of (m.listings || [])) l.mine = isMine(l.who);
+  buildPrices();
+  const rows = buildCandidates(pool, cfg);
+  LAST = { rows, cfg, names: LAST.names, pool: LAST.pool };
+  render();
+  setStatus("Applied the settings to the last scan, no new requests: " + rows.length + " of " + pool.length +
+    " passed the filters." + (needScan.length ? "  Not applied, because they need a new scan: " + needScan.join(", ") + "." : ""),
+    false);
+}
+$("btnReapply").onclick = reapply;
+
+// Every setting as the scan reads it.
+function readCfg(dutyOn, dutyLevel) {
+  return { world: $("world").value.trim() || "Seraph",
+    portfolios: +$("pf").value || 5, pfMax: $("pfmax").checked, slots: +$("slots").value || 20,
+    maxPer: +$("maxper").value || 10, tax: (+$("tax").value || 5) / 100,
+    staleDays: +$("stale").value || 180, minPrice: +$("minprice").value || 0,
+    minSales: +$("minsales").value || 0,
+    margin: (+$("margin").value >= 0 ? +$("margin").value : 20) / 100,
+    hq: $("hqonly").checked, duty: dutyOn, dutyLevel,
+    mine: $("mine").value.trim(),
+    // Your retainers, the tax each one's sales cleared at, and the sales
+    // themselves, each carrying its retainer's name and tax.
+    retainers: readRetainers(),
+    ownSales: readOwnSales() };
+}
+
+// Material prices and ladders from what was fetched. Again whenever your
+// retainers change, since your own listings are never bought from.
+function buildPrices() {
+  PRICE = new Map(); LADDER = new Map();
+  for (const [id, m] of MARKET) {
+    // Materials: either quality. See the cost model.
+    const p = priceOf(m, "any");
+    // An item with no sale history has no price and, by the same rule, no
+    // ladder: it is costed at zero everywhere, so the ranking and the bundle
+    // view cannot disagree about it.
+    if (!p) continue;
+    // PRICE is the material's market price: the median of its last 40 sales.
+    PRICE.set(id, p.median);
+    // The ladder is what you could actually buy here: listings within reach
+    // of the real sale price, and not your own. ladderCost caps every rung at
+    // the median, so a dear listing costs no more than buying elsewhere.
+    const real = (m.listings || [])
+      .filter(l => !l.mine && l.price <= p.median * ABSURD)
+      .sort((a, b) => a.price - b.price).slice(0, LISTINGS);
+    if (real.length) LADDER.set(id, real);
+  }
+}
+
 $("btnScan").onclick = async () => {
   $("btnScan").disabled = true;
   try {
@@ -2355,18 +2451,7 @@ $("btnScan").onclick = async () => {
     }
     if (!pool.length) { setStatus("Tick at least one category, or Duty Items, first.", true); return; }
 
-    const cfg = { world: $("world").value.trim() || "Seraph",
-      portfolios: +$("pf").value || 5, pfMax: $("pfmax").checked, slots: +$("slots").value || 20,
-      maxPer: +$("maxper").value || 10, tax: (+$("tax").value || 5) / 100,
-      staleDays: +$("stale").value || 180, minPrice: +$("minprice").value || 0,
-      minSales: +$("minsales").value || 0,
-      margin: (+$("margin").value >= 0 ? +$("margin").value : 20) / 100,
-      hq: $("hqonly").checked, duty: dutyOn, dutyLevel,
-      mine: $("mine").value.trim(),
-      // Your retainers, the tax each one's sales cleared at, and the sales
-      // themselves, each carrying its retainer's name and tax.
-      retainers: readRetainers(),
-      ownSales: readOwnSales() };
+    const cfg = readCfg(dutyOn, dutyLevel);
 
     // Must happen before anything is fetched: loadMarket drops these listings as
     // it reads them, so the set has to be in place first.
@@ -2414,24 +2499,7 @@ $("btnScan").onclick = async () => {
       setBar(d / t); setStatus("Pricing on " + cfg.world + "… " + d + " / " + t);
     }, hqIds, new Set(pool.map(r => r.itemId)));
     MARKET = res.market; HQMARKET = res.hqMarket;
-    PRICE = new Map(); LADDER = new Map();
-    for (const [id, m] of MARKET) {
-      // Materials: either quality. See the cost model.
-      const p = priceOf(m, "any");
-      // An item with no sale history has no price and, by the same rule, no
-      // ladder: it is costed at zero everywhere, so the ranking and the bundle
-      // view cannot disagree about it.
-      if (!p) continue;
-      // PRICE is the material's market price: the median of its last 40 sales.
-      PRICE.set(id, p.median);
-      // The ladder is what you could actually buy here: listings within reach
-      // of the real sale price, and not your own. ladderCost caps every rung at
-      // the median, so a dear listing costs no more than buying elsewhere.
-      const real = (m.listings || [])
-        .filter(l => !l.mine && l.price <= p.median * ABSURD)
-        .sort((a, b) => a.price - b.price).slice(0, LISTINGS);
-      if (real.length) LADDER.set(id, real);
-    }
+    buildPrices();
 
     if (!MARKET.size) {
       setStatus("Could not reach Universalis at all — nothing was priced. It is usually busy rather " +
@@ -2452,8 +2520,10 @@ $("btnScan").onclick = async () => {
                 "or allow older data.", true);
       $("out").innerHTML = ""; return;
     }
-    LAST = { rows, cfg, names };
+    // The pool is kept so the settings can be applied again without a scan.
+    LAST = { rows, cfg, names, pool };
     render();
+    $("btnReapply").disabled = false;
     // Two different populations get counted here and saying so matters: `pool` is
     // the recipes in the ticked categories, `res.total` is those plus every
     // material in their trees, all of which need a price.

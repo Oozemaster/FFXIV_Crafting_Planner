@@ -15,6 +15,12 @@ Teamcraft** copies a Teamcraft import link for every craft in the bundles (secti
 **Duty Items** (v09.26.26.3), a box above the category list, adds items that drop from
 dungeons, trials and raids, in bundles of their own (section 8a). It starts unticked, and
 nothing about them is priced unless it is ticked.
+**✓ Apply to last scan** (v09.26.26.6), top right of Setup, filters and sorts the last
+scan again with the settings as they now stand, without a new request: the minimum price
+and sales, data age, tax, margin, bundle shape, retainers and sales, fewer categories, a
+lower Duty Level. World, HQ only, Max recipe level, newly ticked categories and a higher
+Duty Level need data the scan did not fetch; the status line names them and they are not
+applied. A loaded session has bundles but no market data behind it, so the button is off.
 Every other setting takes effect at the next scan.
 
 **This document describes the tool as it is built today.** The incoming-supply term was
@@ -23,7 +29,7 @@ built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older des
 of it that remain unbuilt.
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.26.26.5`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.26.26.6`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)
@@ -44,6 +50,14 @@ vendor prices, what is gatherable. Changes only when Square Enix patches the gam
 **Universalis** — the market board. Players run an uploader that reports what they view,
 so Universalis knows whatever somebody last looked at. This is the data that can be stale
 or absent.
+
+**Scan speed.** Universalis is asked four requests at a time, 25 items each (since
+v09.26.26.6). Measured 2026-09-26 on 400 uncached items a test: one at a time 7.25 s a
+request, four at once 1.58, eight at once 1.32 with 6 of 16 failing. Live, the level-50
+furnishings scan priced 1,068 items in 92 s (about 3x faster than before); Select All at
+level 100 had taken about 45 minutes one request at a time. Next idea, not built: the
+tracker keeps a daily price-and-demand summary so a scan fetches live data only for the
+items that could qualify.
 
 **The tracker's listing history** — the repository's `data` branch, written daily by
 `tracker.js` (see Tracker files). The only record anywhere of what was *listed*, as opposed

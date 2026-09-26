@@ -386,6 +386,24 @@ const hqOnly = it => ({ ...it,
   await page.fill("#pf", "5");
   await page.press("#pf", "Enter");
 
+  // Apply to last scan (2026-09-26): Min sale price 70,000 drops Test Rug
+  // (69,999) and Test Ring (29,999) and keeps Wall, Lamp and Ingot (20 x 4,799
+  // = 95,980 a slot), with no request to Universalis. HQ only ticked at the
+  // same time needs a scan: it must be named and not applied. Then back.
+  const reapply = { enabledAfterScan: !(await page.$eval("#btnReapply", b => b.disabled)) };
+  const uniBefore = seen.filter(u => u.includes("universalis.app")).length;
+  await page.fill("#minprice", "70000");
+  await page.check("#hqonly");
+  await page.click("#btnReapply");
+  reapply.names = await page.evaluate(() => LAST.rows.map(r => r.name).sort());
+  reapply.hqKept = await page.evaluate(() => LAST.cfg.hq);
+  reapply.status = await page.textContent("#status");
+  reapply.newRequests = seen.filter(u => u.includes("universalis.app")).length - uniBefore;
+  await page.uncheck("#hqonly");
+  await page.fill("#minprice", "5000");
+  await page.click("#btnReapply");
+  reapply.restored = await page.evaluate(() => LAST.rows.length);
+
   await page.check("#hqonly");
   const hq = await scan();
 
@@ -425,6 +443,8 @@ const hqOnly = it => ({ ...it,
   console.log("max bundles        :", JSON.stringify(maxRun),
               "(want placed = allowed, field = bundles, fieldShut/tickShut true, statusSame true, off keeps the count and opens the field)");
   console.log("teamcraft export   :", JSON.stringify(tc));
+  console.log("apply to last scan :", JSON.stringify(reapply),
+              "(want enabled, names Test Ingot/Lamp/Wall, hqKept false, status names HQ only, newRequests 0, restored 5)");
   console.log("stacks and junk    :", JSON.stringify(stackRows),
               "(want Ingot stack 20, every other 1; Wall supply 2.5 (own listing out, junk at half) and Lamp 1)");
   console.log("ingot 5 slots      :", JSON.stringify(ingotTm), "(want crafts5 34, units5 100, mats5 680)");
