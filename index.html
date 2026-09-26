@@ -120,7 +120,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.26.26.7</span></p>
+    <span class="stamp">v09.26.26.8</span></p>
 </header>
 
 <div class="panel">
@@ -2416,6 +2416,8 @@ function buildPrices() {
 
 $("btnScan").onclick = async () => {
   $("btnScan").disabled = true;
+  // No applying to a scan while the next one is half fetched.
+  $("btnReapply").disabled = true;
   try {
     const chosen = new Set([...document.querySelectorAll("#cats input:checked")].map(i => i.value));
     const pool = RECIPES.filter(r => chosen.has(r.category));
@@ -2492,15 +2494,17 @@ $("btnScan").onclick = async () => {
     try { VENDOR = await loadVendorPrices(matNames); } catch (e) { VENDOR = new Map(); }
 
     const rows = buildCandidates(pool, cfg);
-    if (!rows.length) {
-      setStatus("Nothing cleared the filters. Lower the minimum price or sales, widen the categories, " +
-                "or allow older data.", true);
-      $("out").innerHTML = ""; return;
-    }
-    // The pool is kept so the settings can be applied again without a scan.
+    // The pool is kept so the settings can be applied again without a scan —
+    // even when nothing passed, which is when loosening a filter and applying
+    // it matters most (until v09.26.26.8 this case left the button off).
     LAST = { rows, cfg, names, pool };
+    if (!rows.length) {
+      $("out").innerHTML = "";
+      setStatus("Nothing cleared the filters. Lower the minimum price or sales, widen the categories, " +
+                "or allow older data, then Apply to last scan.", true);
+      return;
+    }
     render();
-    $("btnReapply").disabled = false;
     // Two different populations get counted here and saying so matters: `pool` is
     // the recipes in the ticked categories, `res.total` is those plus every
     // material in their trees, all of which need a price.
@@ -2546,7 +2550,12 @@ $("btnScan").onclick = async () => {
       ? "Lost the connection to Universalis. That is normally a temporary hiccup on their end — " +
         "wait a few seconds and press Scan the market again."
       : "Market scan failed: " + err.message, true);
-  } finally { $("btnScan").disabled = false; }
+  } finally {
+    $("btnScan").disabled = false;
+    // However the scan ended, the button follows whether there is market data
+    // to apply the settings to.
+    $("btnReapply").disabled = !(LAST && LAST.pool);
+  }
 };
 </script>
 </body>

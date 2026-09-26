@@ -29,7 +29,7 @@ built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older des
 of it that remain unbuilt.
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.26.26.7`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.26.26.8`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)

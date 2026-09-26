@@ -397,9 +397,28 @@ const hqOnly = it => ({ ...it,
   await page.fill("#minprice", "5000");
   await page.click("#btnReapply");
   reapply.restored = await page.evaluate(() => LAST.rows.length);
+  // Min sales per week through the button: 82 cuts Test Ring (80 a week NQ
+  // and HQ together) and keeps the rest (85 and 243). Then back to 1.
+  await page.fill("#minsales", "82");
+  await page.click("#btnReapply");
+  reapply.minSales82 = await page.evaluate(() => LAST.rows.map(r => r.name + " " + r.demand.toFixed(1)).sort());
+  await page.fill("#minsales", "1");
+  await page.click("#btnReapply");
 
   await page.check("#hqonly");
   const hq = await scan();
+
+  // Nothing clears the filters (Min sale price 10,000,000): the scan must
+  // still keep its data and leave Apply to last scan on, so the filter can be
+  // loosened and applied without scanning again.
+  await page.uncheck("#hqonly");
+  await page.fill("#minprice", "10000000");
+  await page.click("#btnScan");
+  await page.waitForFunction(() => /Nothing cleared/.test(document.getElementById("status").textContent), null, { timeout: 30000 });
+  const nothing = { status: (await page.textContent("#status")).slice(0, 30), buttonOn: !(await page.$eval("#btnReapply", b => b.disabled)) };
+  await page.fill("#minprice", "5000");
+  await page.click("#btnReapply");
+  nothing.rowsAfter = await page.evaluate(() => LAST.rows.length);
 
   // Duty Items: until now the box was unticked, so none of the three may have
   // been priced. Tick it: Duty Level appears at 30; scan again.
@@ -438,7 +457,8 @@ const hqOnly = it => ({ ...it,
               "(want placed = allowed, field = bundles, fieldShut true, statusSame true, off keeps the count and opens the field)");
   console.log("teamcraft export   :", JSON.stringify(tc));
   console.log("apply to last scan :", JSON.stringify(reapply),
-              "(want enabled, names Test Ingot/Lamp/Wall, hqKept false, status names HQ only, newRequests 0, restored 5)");
+              "(want enabled, names Test Ingot/Lamp/Wall, hqKept false, status names HQ only, newRequests 0, restored 5, minSales82 without Test Ring)");
+  console.log("nothing cleared    :", JSON.stringify(nothing), "(want status Nothing cleared, button on, 5 rows after loosening and applying)");
   console.log("stacks and junk    :", JSON.stringify(stackRows),
               "(want Ingot stack 20, every other 1; Wall supply 2.5 (own listing out, junk at half) and Lamp 1)");
   console.log("ingot 5 slots      :", JSON.stringify(ingotTm), "(want crafts5 34, units5 100, mats5 680)");
