@@ -120,7 +120,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.26.26.12</span></p>
+    <span class="stamp">v09.26.26.13</span></p>
 </header>
 
 <div class="panel">
@@ -280,6 +280,33 @@ const BLACKLIST = {
   3742: ["Maple Clogs", "Flagged by Shaun. Seraph sales swing from 1 gil to 1,000,000 (30,000 twice in the week to 09-24); a merchant sells them for 54.", "2026-09-26"]
 };
 const blacklisted = id => Object.prototype.hasOwnProperty.call(BLACKLIST, id);
+
+// Anything a merchant sells for gil is not offered (Shaun, 2026-09-26: "I want
+// to craft unique things and sell them, not buy from a vendor and flip onto
+// the market board"). Gear and materials alike — higher-level ingots too.
+// Only gil shops count: items bought with seals or allied society currency
+// (Hardened Sap, Petrified Log) are not in XIVAPI's GilShopItem sheet and stay.
+// Still priced as another craft's material. The tracker writes the list to
+// the data branch daily (gil-shop.json); without it, XIVAPI is asked directly.
+let GIL_SHOP = null;   // Set of item ids, once loaded
+async function loadGilShop(onStatus) {
+  if (GIL_SHOP) return GIL_SHOP;
+  const text = await READINGS.fetchFile("gil-shop.json");
+  try { if (text) return (GIL_SHOP = new Set(JSON.parse(text))); } catch (e) { /* ask XIVAPI */ }
+  const ids = new Set();
+  let url = "https://v2.xivapi.com/api/search?sheets=GilShopItem&query=" + encodeURIComponent("Item>0") + "&fields=Item&limit=500";
+  for (let p = 0; p < 80; p++) {
+    if (onStatus) onStatus("Reading which items merchants sell for gil… " + ids.size);
+    const d = await getJSON(url);
+    for (const r of (d.results || [])) { const id = linkId(r.fields?.Item); if (id > 0) ids.add(id); }
+    if (!d.next) break;
+    url = "https://v2.xivapi.com/api/search?cursor=" + encodeURIComponent(d.next) + "&fields=Item&limit=500";
+  }
+  return (GIL_SHOP = ids);
+}
+const soldForGil = id => !!(GIL_SHOP && GIL_SHOP.has(id));
+// Never offered: on the blacklist, or sold by a merchant for gil.
+const leftOut = id => blacklisted(id) || soldForGil(id);
 
 const MANUAL_NOTES = {
   "Spruce Log":   { tag: "Unspoiled Node", note: "Unspoiled node — Botanist" },
@@ -1088,7 +1115,7 @@ const perSlot = r => r.margin * stackOf(r);
 function buildCandidates(pool, cfg) {
   const rows = [], now = Date.now();
   for (const r of pool) {
-    if (blacklisted(r.itemId)) continue;
+    if (leftOut(r.itemId)) continue;
     // A craft sold as HQ has its own HQ-only record; everything else is priced
     // as normal quality from the plain one.
     const hqRec = HQMARKET.get(r.itemId);
@@ -2203,7 +2230,13 @@ function applySession(d) {
   // The rows as saved are kept apart, so tightening a filter and then easing
   // it back returns to them (v09.26.26.9).
   // A session saved before an item was blacklisted still leaves it out.
-  const saved = (d.rows || []).filter(r => !blacklisted(r.itemId));
+  const saved = (d.rows || []).filter(r => !leftOut(r.itemId));
+  if (!GIL_SHOP) loadGilShop().then(() => {
+    if (!LAST || LAST.saved !== saved) return;          // another scan or session since
+    const keep = r => !leftOut(r.itemId);
+    LAST.saved = saved.filter(keep); LAST.rows = LAST.rows.filter(keep);
+    render();
+  }).catch(() => {});
   LAST = { rows: saved, cfg: c, names, saved, savedCfg: c, savedAt: Date.parse(d.saved) || Date.now() };
   render();
   markApplied();
@@ -2364,14 +2397,15 @@ function reapply() {
   const fetched = new Set(LAST.pool.map(r => r.itemId));
   const needScan = [];
   const chosen = new Set([...document.querySelectorAll("#cats input:checked")].map(i => i.value));
-  const inChosen = RECIPES.filter(r => chosen.has(r.category));
+  // Left-out items (blacklist, gil shops) were never in the pool; not missing.
+  const inChosen = RECIPES.filter(r => chosen.has(r.category) && !leftOut(r.itemId));
   const pool = inChosen.filter(r => fetched.has(r.itemId));
   if (pool.length < inChosen.length) needScan.push("categories ticked since the scan");
   const dutyOn = $("xDuty").checked, dutyLevel = Math.max(1, +$("dutyLevel").value || 1);
   if (dutyOn && !LAST.cfg.duty) needScan.push("Duty Items");
   else if (dutyOn) {
     const inPool = new Set(pool.map(r => r.itemId));
-    const want = dutyCandidates(dutyLevel).filter(d => !inPool.has(d.itemId));
+    const want = dutyCandidates(dutyLevel).filter(d => !inPool.has(d.itemId) && !leftOut(d.itemId));
     const got = want.filter(d => fetched.has(d.itemId));
     if (got.length < want.length) needScan.push("a Duty Level above " + LAST.cfg.dutyLevel);
     pool.push(...got);
@@ -2444,7 +2478,7 @@ function reapplySaved() {
   const duty = new Map(dutyCandidates(dutyLevel).map(d => [d.itemId, d]));
   const rows = [];
   for (const r0 of base) {
-    if (blacklisted(r0.itemId)) continue;
+    if (leftOut(r0.itemId)) continue;
     const r = { ...r0 };
     if (r.duty) {
       // The duty list is in the page, so a lower Duty Level re-times the item.
@@ -2523,8 +2557,10 @@ $("btnScan").onclick = async () => {
       const inPool = new Set(pool.map(r => r.itemId));
       for (const d of dutyCandidates(dutyLevel)) if (!inPool.has(d.itemId)) { pool.push(d); dutyCount++; }
     }
+    try { await loadGilShop(setStatus); } catch (e) { /* the scan goes on without it; the status says so */ }
     const listedOut = pool.filter(r => blacklisted(r.itemId)).length;
-    for (let i = pool.length - 1; i >= 0; i--) if (blacklisted(pool[i].itemId)) pool.splice(i, 1);
+    const gilOut = pool.filter(r => !blacklisted(r.itemId) && soldForGil(r.itemId)).length;
+    for (let i = pool.length - 1; i >= 0; i--) if (leftOut(pool[i].itemId)) pool.splice(i, 1);
     if (!pool.length) { setStatus("Tick at least one category, or Duty Items, first.", true); return; }
 
     const cfg = readCfg(dutyOn, dutyLevel);
@@ -2607,6 +2643,8 @@ $("btnScan").onclick = async () => {
     // material in their trees, all of which need a price.
     let msg = rows.length + " of " + pool.length + " " + (dutyCount ? "items" : "recipes") + " passed the filters." +
       (listedOut ? "  " + listedOut + " blacklisted left out." : "") +
+      (gilOut ? "  " + gilOut + " sold by a merchant for gil left out." : "") +
+      (GIL_SHOP ? "" : "  The list of what merchants sell for gil could not be read, so nothing was left out for it.") +
       (dutyCount ? "  Duty items: " + rows.filter(r => r.duty).length + " of " + dutyCount + " at duty level " + dutyLevel +
                    " or below passed, their time costed at " + DUTY_RATE.toLocaleString() + " gil a minute." : "");
     // Incoming supply: how much of the result rests on a measurement.

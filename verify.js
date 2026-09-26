@@ -48,7 +48,10 @@ const RECIPES = [
   //    craft. Ten sales of 20 in the last two weeks and five of 99 before them,
   //    so the stack is 20 (the median over two weeks, not 99 and not the
   //    median over all fifteen). Material cost per unit is 2 x 1,000 / 3.
-  mkRecipe(7, 9007, "Test Ingot", "Metal", 9002, "Test Plank", 2, false, 3)
+  mkRecipe(7, 9007, "Test Ingot", "Metal", 9002, "Test Plank", 2, false, 3),
+  // 6. a merchant sells it for gil (2026-09-26): priced like Test Ring would
+  //    pass every filter, but it is on gil-shop.json and must never be offered.
+  mkRecipe(8, 9015, "Test Vendor Ring", "Ring", 9002, "Test Plank", 1)
 ];
 
 // Test Wall: 60 sales. The newest 40 sit at 80,000; the 20 oldest at 20,000.
@@ -156,6 +159,10 @@ UNI[9011] = { lastUploadTime: NOW * 1000, listings: [], recentHistory: dutyHist(
 UNI[9012] = { lastUploadTime: NOW * 1000, listings: [], recentHistory: dutyHist(5000, "Roll-") };
 UNI[9013] = { lastUploadTime: NOW * 1000, listings: [], recentHistory: dutyHist(900000, "Card-") };
 
+UNI[9015] = { lastUploadTime: NOW * 1000, listings: [],
+  recentHistory: [...Array(40)].map((_, i) => ({ hq: false, pricePerUnit: 40000, quantity: 1, timestamp: NOW - i * 7200, buyerName: "Vendor-" + i })) };
+const GIL_SHOP_JSON = JSON.stringify([9015]);
+
 // Universalis' hq=true returns only the HQ side of listings and history, and
 // nothing at all for an item that cannot be HQ.
 const hqOnly = it => ({ ...it,
@@ -180,6 +187,7 @@ const hqOnly = it => ({ ...it,
     // The tracker's listing history. The page asks for this month and last; the
     // same fixture answers both, and the page must not double-count a reading.
     // Since 2026-09-26 one gzipped file on the data branch, served as raw bytes.
+    if (url.includes("/data/gil-shop.json")) return route.fulfill({ status: 200, contentType: "text/plain", body: GIL_SHOP_JSON });
     if (url.includes("/data/prev.csv.gz")) return route.fulfill({ status: 200, contentType: "application/octet-stream", body: require("zlib").gzipSync(LISTINGS_CSV) });
     if (url.includes("universalis.app")) {
       const ids = url.split("/").pop().split("?")[0].split(",").map(Number);
@@ -478,6 +486,8 @@ const hqOnly = it => ({ ...it,
   console.log("max bundles        :", JSON.stringify(maxRun),
               "(want placed = allowed, field = bundles, fieldShut true, statusSame true, off keeps the count and opens the field)");
   console.log("teamcraft export   :", JSON.stringify(tc));
+  console.log("sold for gil       :", JSON.stringify({ vendorRingInRows: nq.allRows.some(r => r[0] === "Test Vendor Ring"), status: (nq.status.match(/[0-9]+ sold by a merchant for gil left out/) || [null])[0] }),
+              "(want vendorRingInRows false, status 1 sold by a merchant for gil left out)");
   console.log("apply to last scan :", JSON.stringify(reapply),
               "(want greyWithNoChange true, names Test Ingot/Lamp/Wall, hqKept false, status names HQ only, newRequests 0, restored 5, minSales82 without Test Ring, blacklisted without Test Rug, unblacklisted 5)");
   console.log("nothing cleared    :", JSON.stringify(nothing), "(want status Nothing cleared, greyUntilChanged true, litWhenLoosened true, 5 rows after applying)");

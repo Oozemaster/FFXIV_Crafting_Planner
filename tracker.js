@@ -12,6 +12,8 @@
  *   items.csv                  the watch list: itemId, name, category
  *   archive/YYYY-MM-DD.csv.gz  every listing of every reading first seen that
  *                              day, gzipped; deleted after RETAIN_DAYS
+ *   gil-shop.json              every item a merchant sells for gil (XIVAPI's
+ *                              GilShopItem sheet): the planner never offers them
  *   prev.csv.gz                the few readings per item the planner needs for
  *                              incoming supply (see below) — the only file the
  *                              page downloads
@@ -181,6 +183,15 @@ async function main() {
   if (items.length < 1000) throw new Error("watch list came back short — refusing to write");
   fs.writeFileSync(path.join(DIR, "items.csv"),
     row(["itemId", "name", "category"]) + "\n" + items.map(i => row([i.id, i.name, i.cat])).join("\n") + "\n");
+
+  // What merchants sell for gil (2026-09-26). The planner leaves these out.
+  // A failed read keeps yesterday's file rather than writing an empty one.
+  try {
+    const gil = new Set();
+    await search("GilShopItem", "Item>0", "Item", f => { const id = linkId(f.Item); if (id > 0) gil.add(id); });
+    if (gil.size > 1000) fs.writeFileSync(path.join(DIR, "gil-shop.json"), JSON.stringify([...gil].sort((a, b) => a - b)));
+    console.log(`gil shops sell ${gil.size} items`);
+  } catch (e) { console.log("gil shop list not read: " + e.message); }
 
   const known = indexArchive();
   const has = (id, t) => known.get(id)?.has(t);
