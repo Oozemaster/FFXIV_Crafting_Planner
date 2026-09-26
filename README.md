@@ -35,7 +35,7 @@ built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older des
 of it that remain unbuilt.
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.26.26.11`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.26.26.12`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)
@@ -732,6 +732,7 @@ item from the list brings it back at the next scan.
 | Copper Ring | 4422 | Gil laundering: sold at 50 and 240 million gil; a merchant sells it for 170 | 2026-09-26 |
 | Brass Ring | 4430 | Gil laundering | 2026-09-26 |
 | Copper Gorget | 4305 | Gil laundering | 2026-09-26 |
+| Maple Clogs | 3742 | Flagged by Shaun; Seraph sales from 1 to 1,000,000 gil, merchant price 54 | 2026-09-26 |
 
 ### 9. Priority bands
 
