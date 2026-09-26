@@ -8,8 +8,11 @@ by number in Discord, craft it, list it. Bundles to make, Slots per bundle, Max 
 item and Safety margin re-plan the last scan without a new one (since v09.19.26.6,
 2026-09-19): change the field, then click the ✓ beside it (or press Enter), because a
 scroll over a number field changes it and must not re-plan by itself (v09.19.26.7). The
-✓ is grey while the field matches what the bundles were planned with. Every other
-setting takes effect at the next scan.
+✓ is grey while the field matches what the bundles were planned with. **Max** beside
+Bundles to make (v09.25.26.1) works the number out instead: as few bundles as hold every
+unit the shortage allows (section 8), re-planned at once when ticked. **Export To
+Teamcraft** copies a Teamcraft import link for every craft in the bundles (section 8).
+Every other setting takes effect at the next scan.
 
 **This document describes the tool as it is built today.** The incoming-supply term was
 built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older design of
@@ -17,7 +20,7 @@ built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older des
 of it that remain unbuilt.
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.19.26.7`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.25.26.1`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)
@@ -591,6 +594,22 @@ Mats each walks the material ladder once per craft, plain row first, a later row
 where the earlier ones stopped, so the second twenty are not costed on the same cheap
 listings as the first. On the 09-19 file this adds 13 Wall Planters (120 → 133 slots).
 
+**Max** (Shaun, 2026-09-25): "distributes all identified items among as fewest bundles as
+it can with the maximum slots per bundle set." With the box ticked, Bundles to make is
+worked out, not typed: every unit the shortage allows (section 6, Overflow included) must
+be placed. The count starts at the larger of total units ÷ Slots per bundle and, for each
+craft, its units ÷ Max of one item (both rounded up, since no bundle holds more than Max
+of one item of a craft); if the allocation above still leaves units out, one more bundle
+at a time until none are. The field is shut while Max is on and shows the count; unticking
+keeps that count. In the fixture: 218 units, 40 slots, cap 20 → 6 bundles, 218 placed.
+
+**Export To Teamcraft** (Shaun, 2026-09-25) copies a link to the clipboard:
+`https://ffxivteamcraft.com/import/` followed by the base64 of `itemId,null,quantity` rows
+joined by `;` (Teamcraft's own import format; `null` lets Teamcraft pick the recipe, which
+its import page does anyway). One row per craft, the quantities of all its rows added, so
+a craft split by Overflow is one line. Opening the link shows Teamcraft's import page,
+where a recipe can be picked per item and the lot added to a list.
+
 ### 9. Priority bands
 
 Within a bundle, items are sorted by their contribution to that bundle's total expected
@@ -635,7 +654,15 @@ Judgment calls, not game rules.
 
 Fixed by the game: 5% sales tax; 40 listing slots per character.
 
-Set by choice: recipe level 50 and under.
+Set by choice: recipe level 50 and under, the Max recipe level field. The level is the
+recipe's job level, and every starred recipe at a level comes with it (Shaun,
+2026-09-25: those "are often much more valuable"). Until v09.25.26.1 the field was
+compared against XIVAPI's RecipeLevelTable **row number**, which equals the level only up
+to 50 (rows 51–114 are the 50★ recipes; level 60 starts at row 150, 70 at 290, 80 at 430,
+90 at 560, 100 at 690), so any setting above 50 loaded nothing above level 50. Measured
+2026-09-25, tradeable recipes loaded: 50 → 2,682 (817 starred), 60 → 4,359, 70 → 5,766,
+80 → 7,163, 90 → 8,469, 100 → 9,638. The Lvl column shows the job level with its stars
+(50★★), where it showed the row number before.
 
 ---
 

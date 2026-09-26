@@ -22,7 +22,10 @@ const mkRecipe = (rid, iid, name, cat, ingId, ingName, qty, canHq) => ({
     AmountResult: 1,
     AmountIngredient: [qty, 0, 0, 0, 0, 0, 0, 0],
     Ingredient: [{ row_id: ingId, fields: { Name: ingName } }],
-    RecipeLevelTable: 40,
+    // A row of the level table, as XIVAPI returns it: the row number is not the
+    // level. Test Ring stands in for a 50-star recipe (row 55 = level 50, 1 star).
+    RecipeLevelTable: rid === 6 ? { row_id: 55, fields: { ClassJobLevel: 50, Stars: 1 } }
+                                : { row_id: 40, fields: { ClassJobLevel: 40, Stars: 0 } },
     CraftType: { fields: { Name: "Carpenter" } }
   }
 });
@@ -324,6 +327,32 @@ const hqOnly = it => ({ ...it,
   await page.press("#pf", "Enter");
   replan.enter = await bundles();
 
+  // Max (2026-09-25): as few bundles as hold every unit the shortage allows.
+  // Ticking it re-plans at once, shuts the field and writes the count into it;
+  // unticking keeps that count. Every allowed unit must be placed.
+  const slotsUsed = () => page.$$eval("#out .pf .jobs", js => js.reduce((a, j) => a + +(/(\d+) slots/.exec(j.textContent) || [0, 0])[1], 0));
+  const maxRun = {};
+  await page.check("#pfmax");
+  maxRun.bundles = await bundles();
+  maxRun.field = await page.inputValue("#pf");
+  maxRun.fieldShut = await page.$eval("#pf", i => i.disabled);
+  maxRun.tickShut = await tickOff();
+  maxRun.placed = await slotsUsed();
+  maxRun.allowed = await page.evaluate(() => LAST.rows.reduce((a, r) => a + safeUnits(r.demand, r.supply, r.inflow, LAST.cfg.margin), 0));
+  maxRun.statusSame = (await page.textContent("#status")) === statusBefore;
+  // Export To Teamcraft: the link goes to the clipboard; catch it and read it back.
+  await page.evaluate(() => { window.__copied = null; navigator.clipboard.writeText = async t => { window.__copied = t; }; });
+  await page.click("#btnTeamcraft");
+  const tcLink = await page.evaluate(() => window.__copied);
+  const tc = { status: await page.textContent("#teamcraftStatus"), link: tcLink,
+    rows: tcLink && Buffer.from(decodeURIComponent(tcLink.split("/import/")[1]), "base64").toString() };
+  await page.uncheck("#pfmax");
+  maxRun.offBundles = await bundles();
+  maxRun.offField = await page.inputValue("#pf");
+  maxRun.offOpen = !(await page.$eval("#pf", i => i.disabled));
+  await page.fill("#pf", "5");
+  await page.press("#pf", "Enter");
+
   await page.check("#hqonly");
   const hq = await scan();
 
@@ -338,6 +367,9 @@ const hqOnly = it => ({ ...it,
   console.log("ladder skip        :", JSON.stringify(ladderRule), "(want first 4500, next 5000, far 20000, farImported 10)");
   console.log("re-plan, no scan   :", JSON.stringify(replan),
               "(want tickAtRest true, typedOnly 5, tickLit true, ticked 3, tickAfter true, tab Bundles3, statusSame true, enter 5)");
+  console.log("max bundles        :", JSON.stringify(maxRun),
+              "(want placed = allowed, field = bundles, fieldShut/tickShut true, statusSame true, off keeps the count and opens the field)");
+  console.log("teamcraft export   :", JSON.stringify(tc));
   console.log("screenshot lines   :");
   for (const l of parsed) console.log("   -", l);
   for (const [label, r] of [["HQ only OFF", nq], ["HQ only ON", hq]]) {

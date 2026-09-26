@@ -48,6 +48,10 @@
   .apply { display:flex; gap:6px; align-items:center; }
   .apply input { flex:1; min-width:0; }
   button.tick { padding:6px 9px; font-size:13px; line-height:1; background:transparent; color:var(--accent); }
+  label.maxbox { display:inline-flex; align-items:center; gap:4px; font-size:13px; cursor:pointer; white-space:nowrap; }
+  label.maxbox input { width:auto; margin:0; }
+  input:disabled { opacity:.6; }
+  button .ico { width:14px; height:14px; vertical-align:-2px; margin-right:6px; }
   .status { font-size:13px; color:var(--muted); min-height:20px; }
   .status.err { color:var(--bad); }
   .groups { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;
@@ -116,7 +120,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.19.26.7</span></p>
+    <span class="stamp">v09.25.26.1</span></p>
 </header>
 
 <div class="panel">
@@ -124,7 +128,7 @@
   <div class="grid">
     <div><label class="field" for="world">World</label><input type="text" id="world" value="Seraph"></div>
     <div><label class="field" for="maxlvl">Max recipe level</label><input type="number" id="maxlvl" value="50" min="1" max="100"></div>
-    <div><label class="field" for="pf">Bundles to make</label><div class="apply"><input type="number" id="pf" value="5" min="1" max="30"><button type="button" class="tick" data-tick="pf" disabled title="Apply this to the bundles. Until it is clicked, the change waits.">&#10003;</button></div></div>
+    <div><label class="field" for="pf">Bundles to make</label><div class="apply"><input type="number" id="pf" value="5" min="1" max="30"><button type="button" class="tick" data-tick="pf" disabled title="Apply this to the bundles. Until it is clicked, the change waits.">&#10003;</button><label class="maxbox" title="As few bundles as it takes to hold every unit the shortage allows, at Slots per bundle and Max of one item."><input type="checkbox" id="pfmax"> Max</label></div></div>
     <div><label class="field" for="slots">Slots per bundle</label><div class="apply"><input type="number" id="slots" value="40" min="1" max="200"><button type="button" class="tick" data-tick="slots" disabled title="Apply this to the bundles. Until it is clicked, the change waits.">&#10003;</button></div></div>
     <div><label class="field" for="maxper">Max of one item</label><div class="apply"><input type="number" id="maxper" value="20" min="1" max="100"><button type="button" class="tick" data-tick="maxper" disabled title="Apply this to the bundles. Until it is clicked, the change waits.">&#10003;</button></div></div>
     <div><label class="field" for="tax">Sales tax %</label><input type="number" id="tax" value="5" min="0" max="25"></div>
@@ -378,14 +382,20 @@ let PROGRESS = { crafted: {}, gathered: {} };
 
 const RECIPE_FIELDS = ["ItemResult.Name","ItemResult.IsUntradable","ItemResult.CanBeHq",
   "ItemResult.ItemUICategory.Name","AmountResult","AmountIngredient","Ingredient[].Name",
-  "RecipeLevelTable","CraftType.Name"].join(",");
+  "RecipeLevelTable.ClassJobLevel","RecipeLevelTable.Stars","CraftType.Name"].join(",");
 
+// RecipeLevelTable is a row number, not the level: rows 1-50 happen to be
+// levels 1-50, then 51-114 are the 50-star recipes and level 60 starts at row
+// 150. So the level asked for is the row's ClassJobLevel, which takes every
+// starred recipe at a level along with it (Shaun, 2026-09-25: "make sure the
+// starred recipes are included with the max recipes").
 async function loadRecipes(maxLevel) {
   const base = "https://v2.xivapi.com/api/search";
-  let url = base + "?sheets=Recipe&query=" + encodeURIComponent("RecipeLevelTable<=" + maxLevel) +
+  let url = base + "?sheets=Recipe&query=" + encodeURIComponent("RecipeLevelTable.ClassJobLevel<=" + maxLevel) +
             "&fields=" + encodeURIComponent(RECIPE_FIELDS) + "&limit=500";
   const out = [];
-  for (let p = 0; p < 25; p++) {
+  // 14,909 recipe rows at level 100 (2026-09-25), 500 a page; room to spare.
+  for (let p = 0; p < 50; p++) {
     const data = await getJSON(url);
     for (const r of (data.results || [])) {
       if (r.fields?.ItemResult?.fields?.IsUntradable) continue;
@@ -415,7 +425,9 @@ function parseRecipe(r) {
     if (id > 0 && qty > 0) ing.push({ id, qty, name: linkName(names[i]) });
   }
   if (!ing.length) return null;
-  return { itemId, name, yield: f.AmountResult || 1, level: linkId(f.RecipeLevelTable),
+  const lvl = f.RecipeLevelTable?.fields || {};
+  return { itemId, name, yield: f.AmountResult || 1,
+    level: (lvl.ClassJobLevel || 0) + "★".repeat(lvl.Stars || 0),
     job: linkName(f.CraftType) || "?",
     category: f.ItemResult?.fields?.ItemUICategory?.fields?.Name || "Other", ingredients: ing };
 }
@@ -1058,10 +1070,28 @@ function allocate(rows, totalSlots, maxPer, margin, caps) {
   return out.sort((a, b) => b.k * b.row.margin - a.k * a.row.margin);
 }
 
+// Max (Shaun, 2026-09-25): instead of a set number of bundles, as few as hold
+// every unit the shortage allows, Overflow included. The floor is the larger of
+// all units over Slots per bundle and, for each craft, its units over Max of
+// one item (no bundle holds more than that of one craft); if packing still
+// leaves units out, one more bundle at a time until they all fit.
+function plan(rows, cfg) {
+  if (!cfg.pfMax) return planFor(rows, cfg);
+  const units = rows.map(r => safeUnits(r.demand, r.supply, r.inflow, cfg.margin));
+  const want = units.reduce((a, u) => a + u, 0);
+  let n = Math.max(1, Math.ceil(want / cfg.slots), ...units.map(u => Math.ceil(u / cfg.maxPer)));
+  for (;;) {
+    const result = planFor(rows, { ...cfg, portfolios: n });
+    const got = result.pfs.reduce((a, p) => a + p.slots, 0);
+    if (got >= want || n >= want) { result.n = n; return result; }
+    n++;
+  }
+}
+
 // Allocate, then bundle; if bundling had to cut an item down, allocate again
 // with that item capped so the freed slots go to the next-best item rather
 // than sitting empty. Converges in a pass or two; bounded anyway.
-function plan(rows, cfg) {
+function planFor(rows, cfg) {
   const caps = new Map();        // itemId -> { from: first asked for, to: cap }
   let result;
   for (let pass = 0; pass < 6; pass++) {
@@ -1305,7 +1335,10 @@ function matTable(list, splitGathering) {
 function render() {
   if (!LAST) return;
   const { rows, cfg } = LAST;
-  const { pfs, trimmed } = plan(rows, cfg);
+  const { pfs, trimmed, n } = plan(rows, cfg);
+  // Under Max the field shows the count it came to, and keeps it when Max is
+  // unticked, so the bundles stay as they are until the field is changed.
+  if (cfg.pfMax) { cfg.portfolios = n; $("pf").value = n; }
   const grand = pfs.reduce((a, p) => a + p.value, 0);
   const used = pfs.reduce((a, p) => a + p.slots, 0);
   const allItems = pfs.flatMap(p => p.items);
@@ -1318,7 +1351,10 @@ function render() {
     '<div><span>Expected profit, buying every material</span><strong>' + gil(grand) + '</strong></div>' +
     '<div><span>Bundles</span><strong>' + pfs.length + '</strong></div>' +
     '<div><span>Slots used</span><strong>' + used + '</strong></div>' +
-    '</div><div class="hint">Claim a bundle by number in Discord. ' +
+    '</div><div class="row" style="margin-top:0"><button id="btnTeamcraft" class="secondary small" type="button" ' +
+    'title="Copies a link to the clipboard. Open it and Teamcraft adds every craft in every bundle to a list.">' +
+    COPY_ICON + 'Export To Teamcraft</button><span class="status" id="teamcraftStatus"></span></div>' +
+    '<div class="hint">Claim a bundle by number in Discord. ' +
     (hasOver ? 'A craft is in two bundles only as Overflow: its shortage was more than Max of one item, and the rest fills slots that would otherwise be empty. '
              : 'No two bundles share an item. ') +
     'Values account for the ' + Math.round(cfg.tax * 100) + '% tax, what is already listed, and the fact ' +
@@ -1460,7 +1496,40 @@ function render() {
   });
   track("input[data-craft]", "crafted");
   track("input[data-gather]", "gathered");
+  $("btnTeamcraft").onclick = async () => {
+    const url = teamcraftLink(allItems);
+    const ok = await copyText(url);
+    const crafts = new Set(allItems.map(it => it.row.itemId)).size;
+    $("teamcraftStatus").textContent = ok
+      ? "Link copied: " + crafts + " crafts, " + used + " units. Paste it into the address bar."
+      : "Could not reach the clipboard. The link: " + url;
+  };
   shapeTicks();
+}
+
+// Teamcraft's import link (Shaun, 2026-09-25): ffxivteamcraft.com/import/ and
+// then, base64, "itemId,recipeId,quantity" rows joined by ";". The recipe is
+// left "null" and Teamcraft picks it, as its own import page does. A craft in
+// two bundles through Overflow is one row with both quantities added.
+const COPY_ICON = '<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">' +
+  '<rect x="5.5" y="5.5" width="8" height="9" rx="1.5"/><path d="M10.5 5.5V3a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 3v6.5A1.5 1.5 0 0 0 4 11h1.5"/></svg>';
+function teamcraftLink(items) {
+  const qty = new Map();
+  for (const it of items) qty.set(it.row.itemId, (qty.get(it.row.itemId) || 0) + it.k);
+  const rows = [...qty].map(([id, k]) => id + ",null," + k).join(";");
+  // Escaped because base64 can hold "/" and "+", which a path would misread;
+  // Teamcraft decodes the segment before reading it.
+  return "https://ffxivteamcraft.com/import/" + encodeURIComponent(btoa(rows));
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch (e) {}
+  // Older route, for pages the clipboard API will not serve.
+  const t = document.createElement("textarea");
+  t.value = text; t.style.position = "fixed"; t.style.opacity = "0";
+  document.body.appendChild(t); t.select();
+  let ok = false; try { ok = document.execCommand("copy"); } catch (e) {}
+  t.remove();
+  return ok;
 }
 
 // ---------------------------------------------------------------------------
@@ -1934,6 +2003,7 @@ function applySession(d) {
   const c = d.cfg || {};
   if (c.world) $("world").value = c.world;
   if (c.portfolios) $("pf").value = c.portfolios;
+  $("pfmax").checked = $("pf").disabled = !!c.pfMax;
   if (c.slots) $("slots").value = c.slots;
   if (c.maxPer) $("maxper").value = c.maxPer;
   if (c.tax != null) $("tax").value = Math.round(c.tax * 100);
@@ -1985,8 +2055,15 @@ const SHAPE = [
   ["margin", "margin", v => (+v >= 0 ? +v : 20) / 100]];
 const tickOf = id => document.querySelector('[data-tick="' + id + '"]');
 function shapeTicks() {
-  for (const [id, key, read] of SHAPE) tickOf(id).disabled = !LAST || read($(id).value) === LAST.cfg[key];
+  for (const [id, key, read] of SHAPE) tickOf(id).disabled = !LAST || read($(id).value) === LAST.cfg[key] ||
+    (id === "pf" && $("pfmax").checked);
 }
+// Max works out Bundles to make itself, so the field is shut while it is on.
+// A click on a checkbox is deliberate, so it re-plans at once, no tick.
+$("pfmax").onchange = () => {
+  $("pf").disabled = $("pfmax").checked;
+  if (LAST) { LAST.cfg.pfMax = $("pfmax").checked; render(); } else shapeTicks();
+};
 for (const [id, key, read] of SHAPE) {
   const apply = () => { if (!LAST || tickOf(id).disabled) return; LAST.cfg[key] = read($(id).value); render(); };
   $(id).oninput = shapeTicks;
@@ -2123,7 +2200,7 @@ $("btnScan").onclick = async () => {
     if (!pool.length) { setStatus("Tick at least one category first.", true); return; }
 
     const cfg = { world: $("world").value.trim() || "Seraph",
-      portfolios: +$("pf").value || 5, slots: +$("slots").value || 20,
+      portfolios: +$("pf").value || 5, pfMax: $("pfmax").checked, slots: +$("slots").value || 20,
       maxPer: +$("maxper").value || 10, tax: (+$("tax").value || 5) / 100,
       staleDays: +$("stale").value || 180, minPrice: +$("minprice").value || 0,
       minSales: +$("minsales").value || 0,
