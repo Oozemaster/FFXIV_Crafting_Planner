@@ -20,7 +20,7 @@ built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older des
 of it that remain unbuilt.
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.25.26.3`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.25.26.4`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)
@@ -461,10 +461,9 @@ then 1 (my fallback, not yet reviewed by Shaun). A slot is worth `stack x` a uni
 the allocator ranks and balances on that, Max of one item counts slots, the Minimum sale
 price applies to `listAt x stack` (a stack of 20 at 300 is a 6,000-gil listing), and
 Mats each / Profit each stay per unit while Expected is the whole quantity. A craft sold in
-stacks shows one bundle row per listing, `Iron Ingot ×20` three times for three listings
-(v09.25.26.3; Shaun: "5 listings should be 5 different rows"), each with its own List at
-and Made tally; the materials are costed for the listings together and each row shows
-that per-unit figure; All items has a Stack column; Export
+stacks is one bundle row, `Iron Ingot (20) ×3` for three listings of twenty (Shaun,
+2026-09-25; v09.25.26.3 briefly showed one row per listing and he chose the combined row),
+and its Made tally counts listings; All items has a Stack column; Export
 To Teamcraft sends units (60), and Teamcraft works out the crafts. Weekly demand and
 supply were always in units and are unchanged.
 

@@ -120,7 +120,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.25.26.3</span></p>
+    <span class="stamp">v09.25.26.4</span></p>
 </header>
 
 <div class="panel">
@@ -1273,17 +1273,7 @@ function inflowNote(r) {
     (i.truncated ? " Universalis returned its limit of 200 sales and the oldest is newer than the reading, so the sold count is a floor." : "");
 }
 
-// A bundle's rows as listed: a craft sold in stacks becomes one row per
-// listing. The materials are costed for all its listings together and each
-// row shows that per-unit figure: crafted one listing at a time, a yield of 3
-// would waste the odd units of every listing (7 crafts per 20 instead of 34
-// per 100).
-const listingRows = items => items.flatMap(it => {
-  if (!(stackOf(it.row) > 1 && it.k > 1)) return [it];
-  const tm = trueMargin(it.row, it.k, it.before);
-  return Array.from({ length: it.k }, (_, j) => ({ ...it, k: 1, part: j, tm }));
-});
-const marginOf = it => it.tm || trueMargin(it.row, it.k, it.before);
+const marginOf = it => trueMargin(it.row, it.k, it.before);
 
 // Order and priority-band a bundle by its real, ladder-walked value.
 function bandFor(p) {
@@ -1434,7 +1424,7 @@ function render() {
 
   if (TAB === "pf") {
     pfs.forEach((p, i) => {
-      const { items, total } = bandFor({ items: listingRows(p.items) });
+      const { items, total } = bandFor(p);
       const jobs = [...new Set(items.map(x => x.row.job))].sort();
       html += '<div class="pf"><header><div><h3>Bundle ' + (i + 1) + '</h3>' +
         '<div class="jobs">' + jobs.join(" &middot; ") + ' &nbsp;—&nbsp; ' + p.slots + ' slots</div></div>' +
@@ -1446,9 +1436,8 @@ function render() {
       for (const it of items) {
         const r = it.row, [label, cls] = PRI[it.priority];
         const tm = marginOf(it);
-        // An Overflow row keeps its own tally, apart from the craft's plain row,
-        // and each listing of a stack its own.
-        const key = r.itemId + (it.over ? ":o" + (i + 1) : "") + (it.part != null ? ":s" + it.part : "");
+        // An Overflow row keeps its own tally, apart from the craft's plain row.
+        const key = r.itemId + (it.over ? ":o" + (i + 1) : "");
         const made = PROGRESS.crafted[key] || 0;
         // A craft carries no tags. Shaun, 2026-09-16: "The items in the bundles
         // don't need any tags. If I need more info, we'll add tags later."
@@ -1463,9 +1452,9 @@ function render() {
           (x.unit ? " @ " + gil(x.unit) : " (never sold, costed at 0)") +
           (x.canGather ? " (gatherable)" : "") + sealTag(x)).join(" &middot; ");
         html += '<tr' + (made >= it.k ? ' class="done"' : '') + '><td class="l"><span class="qty">' +
-          // A stack is one row per listing, "Test Ingot ×20" (Shaun, 2026-09-25:
-          // "5 listings should be 5 different rows"); a single unit keeps "20×".
-          (stackOf(r) > 1 ? '</span>' + itemLink(r.name) + ' <span class="qty">&times;' + stackOf(r) + '</span>'
+          // A stack reads "Test Ingot (20) ×5": five listings of twenty (Shaun,
+          // 2026-09-25). A single unit keeps "20× Wall Planter".
+          (stackOf(r) > 1 ? '</span>' + itemLink(r.name) + ' <span class="qty">(' + stackOf(r) + ') &times;' + it.k + '</span>'
                           : it.k + '&times;</span> ' + itemLink(r.name)) +
           (it.over ? overTag() : '') + '<div class="mats">' + mats + '</div></td>' +
           '<td class="l"><span class="pri ' + cls + '">' + label + '</span></td>' +
