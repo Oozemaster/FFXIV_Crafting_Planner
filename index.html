@@ -120,7 +120,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.25.26.4</span></p>
+    <span class="stamp">v09.25.26.5</span></p>
 </header>
 
 <div class="panel">
@@ -1452,10 +1452,10 @@ function render() {
           (x.unit ? " @ " + gil(x.unit) : " (never sold, costed at 0)") +
           (x.canGather ? " (gatherable)" : "") + sealTag(x)).join(" &middot; ");
         html += '<tr' + (made >= it.k ? ' class="done"' : '') + '><td class="l"><span class="qty">' +
-          // A stack reads "Test Ingot (20) ×5": five listings of twenty (Shaun,
-          // 2026-09-25). A single unit keeps "20× Wall Planter".
-          (stackOf(r) > 1 ? '</span>' + itemLink(r.name) + ' <span class="qty">(' + stackOf(r) + ') &times;' + it.k + '</span>'
-                          : it.k + '&times;</span> ' + itemLink(r.name)) +
+          // "6× Test Ingot (20)": six listings of twenty. A stack of 1 has no
+          // marker: "20× Wall Planter" (Shaun, 2026-09-25).
+          it.k + '&times;</span> ' + itemLink(r.name) +
+          (stackOf(r) > 1 ? ' <span class="qty">(' + stackOf(r) + ')</span>' : '') +
           (it.over ? overTag() : '') + '<div class="mats">' + mats + '</div></td>' +
           '<td class="l"><span class="pri ' + cls + '">' + label + '</span></td>' +
           '<td class="l">' + esc(r.job) + '</td><td>' + r.level + '</td><td>' + gil(r.listAt) + '</td>' +
