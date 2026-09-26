@@ -61,6 +61,7 @@
     cursor:pointer; }
   .groups label.on { background:var(--accent-soft); border-color:var(--accent); color:var(--accent); }
   .groups label input { width:auto; }
+  #dutyBox label:has(input:checked) { background:var(--accent-soft); border-color:var(--accent); color:var(--accent); }
   .cats { display:flex; flex-wrap:wrap; gap:6px; max-height:190px; overflow-y:auto; }
   .cats label { display:inline-flex; align-items:center; gap:6px; font-size:13px; padding:5px 10px;
     border:1px solid var(--line); border-radius:20px; cursor:pointer; }
@@ -120,7 +121,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.26.26.2</span></p>
+    <span class="stamp">v09.26.26.5</span></p>
 </header>
 
 <div class="panel">
@@ -181,6 +182,15 @@
 <div class="panel" id="catPanel" hidden>
   <h2>What to consider crafting</h2>
   <div class="groups" id="groups"></div>
+  <!-- Duty Items (Shaun, 2026-09-26): marketable drops from dungeons, trials and
+       raids, in bundles of their own so people who do not craft have something
+       to list. Unticked by default; nothing about them is priced unless ticked.
+       Duty Level is filled in when the box is ticked: Max recipe level - 20,
+       because a duty is run unsynced, alone, about 20 levels above it. -->
+  <div class="groups" id="dutyBox">
+    <label title="Items that drop from dungeon, trial and raid coffers, in their own bundles. Their cost is the time to get them at 1,000 gil a minute, so anything that pays less is left out."><input type="checkbox" id="xDuty"> Duty Items</label>
+    <span id="dutyLevelWrap" style="display:none;align-items:center;gap:6px;font-size:13.5px" title="The highest duty level to count. An item that drops in several duties uses the fastest one at or below this level.">Duty Level <input type="number" id="dutyLevel" min="1" max="100" style="width:80px"></span>
+  </div>
   <div class="cats" id="cats"></div>
   <div class="hint">Furnishings are selected by default: slow-moving and high-value, which suits a once-a-week restock. Groups match against the game's own category names, so a few land oddly.</div>
 </div>
@@ -995,6 +1005,37 @@ function safeUnits(demand, supply, incoming, margin) {
   return Math.max(0, Math.floor(Math.max(0, demand - supply - (incoming || 0)) * (1 - margin)));
 }
 
+// Duty items (Shaun, 2026-09-26). Every marketable item that drops from a
+// dungeon, trial or raid coffer, taken from the Loot sections of the wiki
+// (ffxiv.consolegameswiki.com) for the 361 duties in the Duty Finder, less
+// materia, materials that drop only when synced, and two by hand (White Raven
+// Armor Fragment; Felyne Support Team Cart Horn, whose coffer is itself rare).
+// Kept here so nothing has to be looked up at scan time; tracker.js reads the
+// ids from this line too, so it must stay one line of JSON.
+//   [itemId, name, [[dutyLevel, minutes], ...]]   fastest source first
+// Minutes = time to reach the coffer x items the coffer can drop (1 in N, so N
+// runs on average). Dungeons: treasure coffer n at 5n - 2 minutes, boss n at
+// 5n; trials 1 minute; raids 5; a drop "at a fixed rate" counts as 100%. Drops
+// are taken as evenly weighted; rare ones are adjusted by hand as they are found.
+const DUTY_ITEMS = [[2,"Fire Shard",[[35,18]]],[3,"Ice Shard",[[35,18]]],[4,"Wind Shard",[[35,18]]],[5,"Earth Shard",[[35,18]]],[6,"Lightning Shard",[[35,18]]],[7,"Water Shard",[[35,18]]],[1636,"Blunt Aeolian Scimitar",[[50,21]]],[2235,"Nightprowler's Targe",[[16,208],[15,288],[17,288]]],[2679,"Plundered Cavalier's Hat",[[16,30],[15,48],[17,48]]],[2682,"Pirate's Bandana",[[16,208],[15,288],[17,288]]],[2683,"Plundered Goggles",[[16,30],[15,48],[17,48]]],[2684,"Plundered Celata",[[16,30],[15,48],[17,48]]],[2721,"Doctore's Chain Coif",[[20,30]]],[2722,"Doctore's Hat",[[20,30]]],[2856,"Pince-nez",[[44,27]]],[2887,"Buccaneer's Tricorne",[[44,64]]],[2896,"Templar's Chain Coif",[[44,64]]],[2906,"Harlequin's Cap",[[44,64]]],[2919,"Sentinel's Celata",[[44,64]]],[3030,"Plundered Jacket",[[16,208],[15,288],[17,288]]],[3031,"Plundered Haubergeon",[[16,208],[15,288],[17,288]]],[3032,"Plundered Bliaud",[[16,208],[15,288],[17,288]]],[3033,"Plundered Cuirass",[[16,30],[15,60],[17,60]]],[3054,"Doctore's Chainmail",[[20,60]]],[3055,"Doctore's Harness",[[20,60]]],[3056,"Doctore's Robe",[[20,60]]],[3189,"Coliseum Galerus",[[44,27]]],[3190,"Coliseum Shawl",[[44,27]]],[3207,"Buccaneer's Shirt",[[44,80]]],[3217,"Templar's Haubergeon",[[44,80]]],[3219,"Harlequin's Acton",[[44,80]]],[3248,"Sentinel's Cuirass",[[44,80]]],[3331,"Plundered Trousers",[[16,30],[15,60],[17,60]]],[3445,"Coliseum Subligar",[[44,27]]],[3446,"Coliseum Loincloth",[[44,27]]],[3476,"Harlequin's Tights",[[44,80]]],[3480,"Sentinel's Trousers",[[44,80]]],[3556,"Plundered Gauntlets",[[16,30],[15,48],[17,48]]],[3705,"Sentinel's Gauntlets",[[44,64]]],[3781,"Plundered Sabatons",[[15,12],[16,21],[17,21]]],[3782,"Plundered Duckbills",[[16,208],[15,288],[17,288]]],[3783,"Plundered Moccasins",[[16,208],[15,288],[17,288]]],[3910,"Buccaneer's Boots",[[44,27]]],[3919,"Templar's Sollerets",[[44,27]]],[3926,"Sentinel's Sabatons",[[44,27]]],[4206,"Plundered Ear Cuffs",[[16,21],[17,21],[15,50]]],[4207,"Plundered Earrings",[[16,21],[17,21],[15,50]]],[4554,"X-Potion",[[50,15]]],[4558,"X-Ether",[[50,15]]],[4560,"Hi-Elixir",[[50,15]]],[5206,"Pinprick Pebble",[[50,169]]],[5313,"Dodore Wing",[[47,104]]],[5314,"Uraeus Skin",[[50,88]]],[5316,"Hippogryph Skin",[[50,169]]],[5317,"Coeurl Skin",[[50,21]]],[5437,"Mossy Horn",[[47,56]]],[5565,"Bloody Lance Head",[[50,88]]],[5566,"Bloody Bardiche Head",[[50,169]]],[5567,"Bloody Cesti Covers",[[50,21]]],[5568,"Bloody Bow Rim",[[50,88]]],[5569,"Bloody Grimoire Binding",[[50,88]]],[6159,"Inferno Horn",[[50,9]]],[6161,"Vortex Feather",[[50,9]]],[6163,"Crag Heart",[[50,9]]],[6173,"Morbol Seedling",[[47,12]]],[6203,"Bite-sized Pudding",[[50,288]]],[6205,"Demon Brick",[[50,15]]],[6208,"Slime Puddle",[[50,69]]],[7006,"Dimension Blade Fragment",[[50,5]]],[7007,"Moggle Mog XII's Whisker",[[50,1]]],[7033,"Ishgardian Steel Ingot",[[41,15]]],[7034,"Carnivorous Seedling",[[47,104]]],[7035,"Dungeon Seedling",[[24,12]]],[7036,"Seagrot Water",[[15,12]]],[7037,"Amdapori Stone",[[50,252]]],[7038,"Fine Wax",[[28,3]]],[7039,"Nymian Orb",[[50,288]]],[7040,"Belah'dian Glass",[[35,140]]],[7158,"Stone Vigil Lumber",[[50,51]]],[7159,"Leviathan's Barb",[[50,22]]],[7160,"Barb of the Whorl",[[50,22]]],[7161,"Kingly Whisker",[[50,7]]],[7564,"Baby Opo-opo",[[50,405]]],[7567,"Tight-beaked Parrot",[[50,135]]],[7671,"Clear Prism",[[51,57],[53,57],[55,57],[57,57],[59,57],[60,57]]],[7808,"Manor Varnish",[[50,69]]],[8018,"Throne Gem",[[50,5]]],[8019,"Levin Orb",[[50,25]]],[8020,"Large Levin Orb",[[50,25]]],[8205,"Naughty Nanka",[[50,198]]],[9349,"Mummy's Little Mummy",[[50,135]]],[9363,"Allagan Wootz Nugget",[[50,30]]],[9364,"Allagan Leather",[[50,30]]],[9365,"Allagan Silk",[[50,30]]],[9374,"Bloody Knife Blades",[[50,169]]],[9376,"Allagan Catalyst",[[50,65]]],[9377,"Ice Tear",[[50,26]]],[9378,"Diamond Tear",[[50,26]]],[9379,"Syrcus Shard",[[50,5]]],[10090,"Splintered Chest",[[50,3]]],[10091,"Wild Banana Shoot",[[50,299]]],[12049,"Unicolt",[[57,480]]],[12052,"Owlet",[[60,450]]],[12053,"Ugly Duckling",[[60,465]]],[12054,"Gaelikitten",[[53,450]]],[12056,"Lesser Panda",[[55,465]]],[12057,"Page 63",[[59,450]]],[12257,"Expanse Baleen",[[60,20]]],[12259,"Hive Forewing",[[60,20]]],[12652,"Gobwalker Shielding",[[60,5]]],[13058,"Coffin Lid",[[60,10]]],[13060,"Fiend Sap",[[60,20]]],[13283,"Korpokkur Kid",[[60,225]]],[14098,"Calca",[[60,255]]],[14100,"Morpho",[[60,225]]],[14275,"Faded Copy of Riptide",[[50,15]]],[14276,"Faded Copy of Dark Vows",[[16,10],[50,15]]],[14277,"Faded Copy of The Dark's Embrace",[[50,15]]],[14278,"Faded Copy of A Light in the Storm",[[50,20]]],[14279,"Faded Copy of Imagination",[[60,15]]],[14280,"Faded Copy of Down the Up Staircase",[[60,15]]],[14281,"Faded Copy of The Scars of Battle",[[50,15]]],[14282,"Faded Copy of The Maker's Ruin",[[50,11]]],[14283,"Faded Copy of Primal Judgment",[[50,9]]],[14284,"Faded Copy of Fallen Angel",[[50,9]]],[14285,"Faded Copy of Under the Weight",[[50,9]]],[14286,"Faded Copy of Heroes",[[60,22]]],[14287,"Faded Copy of Fiend",[[60,20]]],[14288,"Faded Copy of Hubris",[[50,135]]],[14289,"Faded Copy of Tumbling Down",[[50,135]]],[14290,"Faded Copy of Out of the Labyrinth",[[50,140]]],[14291,"Faded Copy of Now I Know the Truth",[[50,140]]],[14292,"Faded Copy of Blind to the Dark",[[50,155]]],[14293,"Faded Copy of Hunger",[[50,155]]],[14294,"Faded Copy of Thunderer",[[50,35]]],[14295,"Faded Copy of Rise of the White Raven",[[50,20]]],[14296,"Faded Copy of From the Ashes",[[50,20]]],[14297,"Faded Copy of Answers",[[50,15]]],[15098,"Allagan Aetherstone - Weaponry",[[50,35]]],[15099,"Allagan Aetherstone - Headgear",[[50,40]]],[15100,"Allagan Aetherstone - Body Gear",[[50,35]]],[15101,"Allagan Aetherstone - Hand Gear",[[50,30]]],[15102,"Allagan Aetherstone - Leg Gear",[[50,40]]],[15103,"Allagan Aetherstone - Foot Gear",[[50,30]]],[15104,"High Allagan Aetherstone - Weaponry",[[50,20]]],[15105,"High Allagan Aetherstone - Headgear",[[50,20]]],[15106,"High Allagan Aetherstone - Body Gear",[[50,20]]],[15107,"High Allagan Aetherstone - Hand Gear",[[50,20]]],[15108,"High Allagan Aetherstone - Leg Gear",[[50,25]]],[15109,"High Allagan Aetherstone - Foot Gear",[[50,20]]],[15440,"Calamari",[[60,240]]],[15653,"Nidhogg's Scale",[[60,19]]],[15813,"The Warrens Orchestrion Roll",[[50,15]]],[15815,"Ink Long Dry Orchestrion Roll",[[59,15]]],[15816,"Unbreakable Orchestrion Roll",[[60,15]]],[15817,"Apologies Orchestrion Roll",[[60,225]]],[15818,"Horizons Calling Orchestrion Roll",[[50,195]]],[15834,"Faded Copy of Wreck to the Seaman",[[50,22]]],[15835,"Faded Copy of Through the Maelstrom",[[50,22]]],[15836,"Faded Copy of Good King Moggle Mog XII",[[50,7]]],[15837,"Faded Copy of Revenge of the Horde",[[60,19]]],[15838,"Faded Copy of Battle on the Big Bridge",[[50,1]]],[15908,"Neo Aetherstone - Headgear",[[50,25]]],[15909,"Neo Aetherstone - Body Gear",[[50,15]]],[15910,"Neo Aetherstone - Hand Gear",[[50,20]]],[15911,"Neo Aetherstone - Leg Gear",[[50,25]]],[15912,"Neo Aetherstone - Foot Gear",[[50,20]]],[16572,"Shaggy Shoat",[[60,225]]],[16816,"Slumber Eternal Orchestrion Roll",[[53,15]]],[16817,"Silver Tears Orchestrion Roll",[[50,15]]],[16831,"Faded Copy of Footsteps in the Snow",[[50,26]]],[16832,"Faded Copy of Oblivion",[[50,26]]],[16833,"Faded Copy of Thunder Rolls",[[50,25]]],[16834,"Faded Copy of Equilibrium",[[60,19]]],[16897,"Sophic Bead Fragment",[[60,19]]],[17525,"Bullpup",[[60,225]]],[17572,"Zurvanite Carapace Fragment",[[60,19]]],[17573,"Void Matter",[[60,15]]],[17633,"Hallowed Halls Orchestrion Roll",[[57,15]]],[17651,"Faded Copy of The Corpse Hall",[[50,9]]],[17652,"Faded Copy of Limitless Blue",[[60,20]]],[17653,"Faded Copy of Woe That Is Madness",[[60,20]]],[17654,"Faded Copy of The Hand That Gives the Rose",[[60,20]]],[17655,"Faded Copy of Unbending Steel",[[60,20]]],[17656,"Faded Copy of Infinity",[[60,19]]],[17851,"Poison Ivy Orchestrion Roll",[[60,15]]],[17852,"Bibliophobia Orchestrion Roll",[[60,15]]],[17864,"Faded Copy of Revelation",[[70,19]]],[17865,"Faded Copy of Beauty's Wicked Wiles",[[70,23]]],[19123,"Blade of Revelry",[[70,19]]],[19124,"Blissful Shroud",[[70,23]]],[20529,"Bombfish",[[63,495]]],[20531,"Road Sparrow",[[65,495]]],[20533,"Dress-up Yugiri",[[70,525]]],[20536,"Mock-up Grynewaht",[[67,495]]],[20538,"Ivon Coeurlfist Doll",[[70,540]]],[20541,"Magitek Avenger F1",[[69,495]]],[20542,"Ghido",[[61,495]]],[21090,"Shinryu's Scale",[[70,21]]],[21193,"Salt & Pepper Seal",[[70,240]]],[21285,"The Open Box Orchestrion Roll",[[63,495]]],[21286,"Most Unworthy Orchestrion Roll",[[65,495]]],[21287,"Deception Orchestrion Roll",[[70,525]]],[21288,"Far From Home Orchestrion Roll",[[70,240]]],[21291,"Trisection Orchestrion Roll",[[70,20]]],[21292,"Precipitous Combat Orchestrion Roll",[[70,20]]],[21293,"Ultima's Transformation Orchestrion Roll",[[70,20]]],[21298,"Faded Copy of The Worm's Tail",[[70,21]]],[21911,"White Whittret",[[70,255]]],[22307,"Byakko's Mane",[[70,19]]],[22481,"Down Where Daemons Dwell Orchestrion Roll",[[70,255]]],[22482,"Unbreakable (Duality) Orchestrion Roll",[[70,225]]],[22483,"Their Deadly Mission Orchestrion Roll",[[70,540]]],[22484,"Liberty or Death Orchestrion Roll",[[70,525]]],[22489,"Shattered Orchestrion Roll",[[50,140]]],[22492,"Faded Copy of the Jade Stoa",[[70,19]]],[22495,"Cracked Hanya Mask",[[70,90]]],[22605,"Proof of a Hero - Monster Hunter: World Version Orchestrion Roll",[[70,3]]],[23032,"Monkey King",[[70,255]]],[23209,"Celestial Kimono Remnant",[[70,21]]],[23321,"The Ancient City Orchestrion Roll",[[60,15]]],[23322,"Gates of the Moon Orchestrion Roll",[[67,495]]],[23323,"Earth, Wind, and Water Orchestrion Roll",[[70,255]]],[23328,"The Mystery of Giruvegan Orchestrion Roll",[[70,30]]],[23329,"Apoplexy Orchestrion Roll",[[70,30]]],[23330,"Flash of Steel Orchestrion Roll",[[70,30]]],[23336,"Faded Copy of Under the Moonlight",[[70,21]]],[23892,"Verdant Partition",[[70,270]]],[23998,"Mudpie",[[70,270]]],[24003,"Scarlet Tailfeather",[[70,19]]],[24291,"Upon the Rocks Orchestrion Roll",[[60,15]]],[24292,"Tricksome Orchestrion Roll",[[50,225]]],[24293,"Beneath Bloodied Banners Orchestrion Roll",[[50,375]]],[24294,"From Mud Orchestrion Roll",[[70,270]]],[24295,"A Land Long Dead Orchestrion Roll",[[70,240]]],[24297,"Omega Squared Orchestrion Roll",[[70,25]]],[24298,"Decisions (Omega) Orchestrion Roll",[[70,10]]],[24300,"A Battle Decisively Orchestrion Roll",[[70,25]]],[24301,"Dancing Mad - Movement I Orchestrion Roll",[[70,20]]],[24302,"Dancing Mad - Movement II Orchestrion Roll",[[70,20]]],[24303,"Dancing Mad - Movement III Orchestrion Roll",[[70,20]]],[24305,"Battle Orchestrion Roll",[[70,5]]],[24306,"Primogenitor Orchestrion Roll",[[70,5]]],[24307,"eScape Orchestrion Roll",[[70,5]]],[24308,"Heartless Orchestrion Roll",[[70,10]]],[24319,"Faded Copy of Sunrise",[[70,19]]],[24540,"Moonlit Tank Trimmings",[[70,21]]],[24639,"Wind-up Weapon",[[70,240]]],[24803,"Seiryu's Scale",[[70,19]]],[25059,"A Pall Most Murderous Orchestrion Roll",[[70,240]]],[25073,"Under the Stars Orchestrion Roll",[[70,40]]],[25074,"Pressure (No. 1) Orchestrion Roll",[[70,40]]],[25075,"Antipyretic Orchestrion Roll",[[70,40]]],[25076,"A Man Consumed Orchestrion Roll",[[70,40]]],[25077,"Ultima's Perfection Orchestrion Roll",[[70,40]]],[25086,"Faded Copy of From the Dragon's Wake",[[70,19]]],[26787,"Black Hayate",[[71,465]]],[26788,"Chameleon",[[75,480]]],[26790,"Armadillo Bowler",[[77,480]]],[26793,"Clionid Larva",[[80,180]]],[26801,"Tiny Echevore",[[73,480]]],[26803,"Shoebill",[[80,195]]],[26806,"Forgiven Hate",[[79,495]]],[27314,"Fallen Tree",[[75,480]]],[27905,"To Fire and Sword Orchestrion Roll",[[71,465]]],[27906,"Figments Orchestrion Roll",[[73,480]]],[27907,"Unwound Orchestrion Roll",[[75,480]]],[27908,"Deep Down Orchestrion Roll",[[77,480]]],[27909,"In the Belly of the Beast Orchestrion Roll",[[79,495]]],[27910,"Mortal Instants Orchestrion Roll",[[80,195]]],[27911,"Shadows Withal Orchestrion Roll",[[80,180]]],[27912,"A Long Fall Orchestrion Roll",[[80,165]]],[27913,"Alienus Orchestrion Roll",[[69,495]]],[27914,"Fury Orchestrion Roll",[[50,405]]],[27915,"Force Your Way Orchestrion Roll",[[80,5]]],[27916,"Landslide Orchestrion Roll",[[80,10]]],[27921,"Faded Copy of What Angel Wakes Me",[[80,21]]],[27922,"Faded Copy of Insanity",[[80,23]]],[27951,"Dancing Wing",[[80,21]]],[27952,"Immaculate Wingblade",[[80,23]]],[28061,"Blinding Indigo Orchestrion Roll",[[80,5]]],[28626,"Little Leannan",[[80,285]]],[28888,"The Grand Cosmos Orchestrion Roll",[[80,285]]],[28895,"City Ruins (Rays of Light) Orchestrion Roll",[[80,185]]],[28896,"The Sound of the End Orchestrion Roll",[[80,195]]],[28898,"Alien Manifestation Orchestrion Roll",[[80,185]]],[28899,"Song of the Ancients (Atonement) Orchestrion Roll",[[80,185]]],[28900,"Bipolar Nightmare Orchestrion Roll",[[80,185]]],[28901,"Weight of the World (Prelude Version) Orchestrion Roll",[[80,185]]],[28981,"Cosmos Partition",[[80,285]]],[28990,"Cosmos Decoration",[[80,285]]],[28998,"Dohn Trellis",[[73,480]]],[29401,"Ruby Plating",[[80,21]]],[30096,"Ancient One",[[80,240]]],[30248,"Twice Stricken Orchestrion Roll",[[80,5]]],[30249,"Primal Angel Orchestrion Roll",[[80,5]]],[30250,"Return to Oblivion Orchestrion Roll",[[80,10]]],[30253,"The Maiden's Lament Orchestrion Roll",[[28,195]]],[30254,"The Darkhold Orchestrion Roll",[[44,255]]],[30255,"Floundering in the Depths Orchestrion Roll",[[80,240]]],[30268,"Faded Copy of Ultima (The Primals)",[[80,21]]],[30409,"Gulg Planter",[[79,495]]],[30615,"Plate of Light",[[80,21]]],[30872,"Ephemeral Necromancer",[[80,255]]],[31536,"Templar's Vambraces",[[44,64]]],[31537,"Templar's Skirt",[[44,80]]],[31538,"Buccaneer's Gloves",[[44,64]]],[31539,"Buccaneer's Sarouel",[[44,80]]],[31540,"Harlequin's Mitts",[[44,64]]],[31541,"Harlequin's Boots",[[44,27]]],[31543,"Dzemael Jamadhars",[[44,85]]],[31544,"Dzemael Bardiche",[[44,85]]],[31545,"Dzemael Spear",[[44,85]]],[31546,"Dzemael Longbow",[[44,85]]],[31547,"Dzemael Pugiones",[[44,85]]],[31548,"Dzemael Zweihander",[[44,85]]],[31549,"Dzemael Carbine",[[44,85]]],[31550,"Dzemael Whispering Rod",[[44,85]]],[31551,"Dzemael Staff",[[44,85]]],[31552,"The Book of Dzemael",[[44,85]]],[31553,"Dzemael Planisphere",[[44,85]]],[31670,"Where All Roads Lead Orchestrion Roll",[[80,255]]],[31672,"A Tonberry's Tears Orchestrion Roll",[[50,288]]],[31673,"Abomination Orchestrion Roll",[[38,270]]],[31678,"Fortress of Lies Orchestrion Roll",[[80,175]]],[31680,"End of the Unknown Orchestrion Roll",[[80,175]]],[31687,"Faded Copy of To the Edge",[[80,21]]],[32219,"Iron Torch",[[77,480]]],[32822,"Emerald Plating",[[80,21]]],[32856,"Drippy",[[80,240]]],[33115,"Freshly Glazed Porxie Orchestrion Roll",[[80,240]]],[33116,"Don't Be Afraid Orchestrion Roll",[[80,5]]],[33117,"The Legendary Beast Orchestrion Roll",[[80,5]]],[33118,"Promises to Keep Orchestrion Roll",[[80,10]]],[33119,"The Extreme Orchestrion Roll",[[80,20]]],[33125,"The Ludus Orchestrion Roll",[[20,195]]],[33130,"Below Orchestrion Roll",[[17,195]]],[33131,"Dancing Calcabrina Orchestrion Roll",[[60,255]]],[33135,"Faded Copy of The Black Wolf Stalks Again",[[80,21]]],[33261,"Blue Moon Phasmascape",[[70,21]]],[33262,"Stuffed Android Units",[[80,195]]],[33277,"Necrologos Transcription",[[60,225]]],[33693,"Magitek Predator F1",[[80,240]]],[33707,"Modern Aesthetics - Battle-ready Bobs",[[80,195]]],[33708,"Modern Aesthetics - Scanning for Style",[[80,195]]],[33818,"Faded Copy of In the Arms of War",[[80,21]]],[33819,"Diamond Plating",[[80,21]]],[33841,"Seven Flames Orchestrion Roll",[[80,240]]],[33842,"Mourning Orchestrion Roll",[[80,195]]],[33843,"Emil (Despair) Orchestrion Roll",[[80,195]]],[33844,"Kainé (Final Fantasy Main Theme Version) Orchestrion Roll",[[80,195]]],[33907,"The Sound of the End: 8bit Orchestrion Roll",[[80,195]]],[35791,"Crystal of Eternal Darkness",[[90,23]]],[35792,"Crystal of Divine Light",[[90,23]]],[35972,"Wind-up Magus Sisters",[[81,450]]],[35973,"Optimus Omicron",[[90,165]]],[35974,"Wind-up Anima",[[83,450]]],[35979,"Hippo Calf",[[85,450]]],[35981,"Prince Lunatender",[[90,180]]],[36126,"Paladin's Horde Arms",[[60,19]]],[36347,"Tower of Zot Orchestrion Roll",[[81,450]]],[36348,"Garlemald Express Orchestrion Roll",[[83,450]]],[36349,"As the Sky Burns Orchestrion Roll",[[85,450]]],[36350,"Miracle Works Orchestrion Roll",[[87,465]]],[36351,"The Aetherial Sea Orchestrion Roll",[[89,210]]],[36352,"Of Countless Stars Orchestrion Roll",[[90,180]]],[36353,"Carrots of Happiness Orchestrion Roll",[[90,180]]],[36357,"Ancient Shackles Orchestrion Roll",[[90,5]]],[36358,"Hic Svnt Leones Orchestrion Roll",[[90,10]]],[36372,"Dawnbound Orchestrion Roll",[[61,495]]],[36373,"Roar of the Wyrm Orchestrion Roll",[[55,465]]],[36374,"From the Depths Orchestrion Roll",[[15,195]]],[36378,"Faded Copy of Endcaller",[[90,23]]],[36379,"Faded Copy of Your Answer",[[90,23]]],[36854,"Teacup Kapikulu",[[90,255]]],[37411,"The Map Unfolds Orchestrion Roll",[[90,255]]],[37416,"Pilgrimage Orchestrion Roll",[[90,25]]],[37417,"Radiance Orchestrion Roll",[[90,25]]],[37418,"In the Balance Orchestrion Roll",[[90,25]]],[37433,"Like a Summer Rain Orchestrion Roll",[[60,465]]],[37434,"Descent Orchestrion Roll",[[51,465]]],[37435,"Aftermath Orchestrion Roll",[[50,225]]],[37441,"Faded Copy of The Final Day",[[90,23]]],[37492,"Blue Feather",[[90,23]]],[38448,"Wind-up Scarmiglione",[[90,285]]],[38630,"Troian Beauty (Endwalker) Orchestrion Roll",[[90,285]]],[38631,"FINAL FANTASY IV: Battle 2 (Endwalker) Orchestrion Roll",[[90,285]]],[38633,"Silent Scream Orchestrion Roll",[[90,5]]],[38634,"Scream Orchestrion Roll",[[90,5]]],[38635,"Embers Orchestrion Roll",[[90,10]]],[38636,"White Stone Black Orchestrion Roll",[[90,15]]],[38648,"Toll of the Bells Orchestrion Roll",[[57,480]]],[38649,"Stigma Orchestrion Roll",[[57,480]]],[38652,"A Thousand Screams Orchestrion Roll",[[24,140]]],[38653,"Lipflaps on Longstops Orchestrion Roll",[[32,320]]],[38658,"Faded Copy of Battle with the Four Fiends (Buried Memory)",[[90,23]]],[38675,"Pearl of Winds",[[90,23]]],[39478,"Wind-up Cagnazzo ",[[90,270]]],[39582,"Faded Copy of Forged in Crimson",[[90,23]]],[39583,"Pearl of Flames",[[90,23]]],[39598,"Deep Blue Orchestrion Roll",[[90,270]]],[39600,"Favor Orchestrion Roll",[[90,25]]],[39601,"Rhythm of the Realm Orchestrion Roll",[[90,25]]],[39602,"Dedicated to Moonlight Orchestrion Roll",[[90,25]]],[39605,"Cracks in the Wall Orchestrion Roll",[[50,285]]],[39606,"Echoes of Ages Past Orchestrion Roll",[[35,140]]],[39607,"Cold Salvation Orchestrion Roll",[[41,15]]],[39608,"Miser's Folly Orchestrion Roll",[[47,255]]],[39609,"Forgotten by the Sun Orchestrion Roll",[[50,135]]],[39610,"Holy Consult Orchestrion Roll",[[60,240]]],[40369,"Puffin",[[90,240]]],[40702,"Faded Copy of Voidcast Savior",[[90,23]]],[40706,"Starsbreath Orchestrion Roll",[[90,240]]],[40708,"One Amongst the Weary Orchestrion Roll",[[90,5]]],[40709,"Fleeting Moment Orchestrion Roll",[[90,5]]],[40710,"Athena, the Tireless One Orchestrion Roll",[[90,10]]],[40711,"Ultima's Perfection (Endwalker) Orchestrion Roll",[[90,125]]],[40752,"Voidcast Pauldron",[[90,23]]],[40753,"Pearl of Fissures",[[90,285]]],[40754,"Pearl of Tides",[[90,270]]],[41056,"Abyssal Diamond",[[90,23]]],[41097,"Lapis Manalis Banner",[[90,270]]],[41099,"Hyperboreia Bench",[[87,465]]],[41100,"Aitiascope Desk",[[89,210]]],[41101,"Aitiascope Lamp",[[89,210]]],[41102,"Throne of the Foremost",[[90,285]]],[41140,"Alzadaal's Garden Lamp",[[90,255]]],[41477,"Wind-up Golbez",[[90,240]]],[41654,"Faded Copy of FINAL FANTASY IV: The Final Battle (Endwalker)",[[90,23]]],[41657,"Kingdom of Baron (Endwalker) Orchestrion Roll",[[90,240]]],[41659,"Fair Winds to Guide Orchestrion Roll",[[90,25]]],[41660,"Course Uncharted Orchestrion Roll",[[90,25]]],[41661,"Myths of the Realm Orchestrion Roll",[[90,25]]],[41834,"Ruinous Plume",[[100,25]]],[41835,"Resilient Armor",[[100,23]]],[43569,"Petit Punutiy",[[91,465]]],[43570,"Air-wheeler M9",[[97,480]]],[43577,"Rororrlo Teh",[[93,465]]],[43579,"Tankardtender",[[100,195]]],[43581,"Speaking Stone",[[95,465]]],[43583,"Mischief Maker",[[100,210]]],[43585,"Ambrose the Unfinished",[[99,210]]],[44295,"Punutiy Crossing Orchestrion Roll",[[91,465]]],[44296,"Empyrean Peak Orchestrion Roll",[[93,465]]],[44297,"Lost in the Deep Orchestrion Roll",[[95,465]]],[44298,"In Fulgur and Fire Orchestrion Roll",[[97,480]]],[44299,"Anatomy of Existence Orchestrion Roll",[[99,210]]],[44300,"A Trail Unending Orchestrion Roll",[[100,180]]],[44301,"Blessings on the Bluffs Orchestrion Roll",[[100,195]]],[44302,"Court Jesters (Dawntrail) Orchestrion Roll",[[100,210]]],[44305,"It's Showtime! Orchestrion Roll",[[100,5]]],[44306,"Bee My Honey Orchestrion Roll",[[100,5]]],[44307,"Burning Souls Orchestrion Roll",[[100,5]]],[44308,"Give It All Orchestrion Roll",[[100,10]]],[44309,"A Risky Bet Orchestrion Roll",[[100,125]]],[44328,"Faded Copy of The Skyruin",[[100,25]]],[44329,"Faded Copy of Seeking Purpose",[[100,23]]],[44487,"Shshuye",[[100,240]]],[44849,"Eternal Queensguard",[[100,25]]],[44888,"Skydeep Lamp",[[95,465]]],[44889,"Origenics Monitor Desk",[[99,210]]],[44890,"Origenics Chair",[[99,210]]],[44891,"Strayborough Wall Lamp",[[100,210]]],[44892,"Traumerei Floor Stencil",[[100,210]]],[44930,"Electrope Turret",[[97,480]]],[44931,"Lesser Pillar of Tural",[[100,195]]],[44932,"Ihuykatumu Flower Plot",[[91,465]]],[44933,"Zormor Stone Lantern",[[93,465]]],[45007,"Unbroken Vessels Orchestrion Roll",[[100,240]]],[45039,"Faded Copy of Paved in Solitude",[[100,25]]],[45579,"Royal Damask",[[100,15]]],[46135,"FINAL FANTASY IX: The Final Battle (Dawntrail) Orchestrion Roll",[[100,25]]],[46136,"Remembrance Orchestrion Roll",[[100,240]]],[46260,"Shattered Arc",[[100,25]]],[46778,"Micro Crow",[[100,240]]],[47971,"Royal Hound",[[100,240]]],[48145,"Knight Core",[[100,25]]],[48214,"Find the Princess (Dawntrail) Orchestrion Roll",[[100,240]]],[48215,"Ride the Rhythm Orchestrion Roll",[[100,5]]],[48216,"Back to the Drawing Board Orchestrion Roll",[[100,5]]],[48217,"Not Afraid Orchestrion Roll",[[100,5]]],[48218,"Unleashed Orchestrion Roll",[[100,10]]],[48219,"Peerless Orchestrion Roll",[[100,125]]],[48226,"Faded Copy of Roses of May (Dawntrail)",[[100,25]]],[49783,"Runaway Metal",[[100,25]]],[50320,"Mistic Condor",[[100,255]]],[50781,"FINAL FANTASY IX: Battle 2 (Dawntrail) Orchestrion Roll",[[100,25]]],[50782,"FINAL FANTASY IX: Battle 1 (Dawntrail) Orchestrion Roll",[[100,255]]],[50783,"Fanfare from FINAL FANTASY IX Orchestrion Roll",[[100,255]]],[50787,"Sinister Orchestrion Roll",[[100,5]]],[50788,"The Mirror Orchestrion Roll",[[100,5]]],[50789,"Absolute Tyranny Orchestrion Roll",[[100,5]]],[50790,"Everything Burns Orchestrion Roll",[[100,10]]],[50791,"The Arcadion Orchestrion Roll",[[100,125]]],[52254,"Standard Spectrum Dye",[[51,57],[53,57],[55,57],[57,57],[59,57],[60,57]]],[52276,"Caprino",[[100,240]]],[52292,"Ballroom Etiquette - Dignified Derision",[[100,20]]],[52333,"FINAL FANTASY V: The Final Battle (Dawntrail) Orchestrion Roll",[[100,25]]],[52334,"Untested Voyager Orchestrion Roll",[[100,240]]],[52633,"Arm of Unmaking",[[100,25]]]];
+// What a minute in a duty costs (Shaun, 2026-09-26): "Anything below that, and
+// we can get more gil by running other content." A duty item's cost is its
+// minutes at this rate, so it ranks by what a slot is worth like a craft, and
+// one that pays under this a minute has no profit and drops out.
+const DUTY_RATE = 1000;   // gil per minute
+// The duty items at or below a duty level, each timed by its fastest source
+// there. Shaped like a recipe with no ingredients; never put in BY_ITEM.
+function dutyCandidates(level) {
+  const out = [];
+  for (const [itemId, name, sources] of DUTY_ITEMS) {
+    const ok = sources.filter(([l]) => l <= level);
+    if (!ok.length) continue;
+    const [lvl, minutes] = ok.reduce((a, c) => c[1] < a[1] ? c : a);
+    out.push({ itemId, name, yield: 1, job: "Duty", level: lvl, category: "Duty item",
+               ingredients: [], duty: true, minutes });
+  }
+  return out;
+}
 // Stacks (Shaun, 2026-09-25). Materials sell in varying quantities, so one
 // bundle slot is one listing of the quantity the item usually sells in: the
 // median Quantity per sale over the last two weeks, on the quality it is sold
@@ -1048,9 +1089,13 @@ function buildCandidates(pool, cfg) {
     let cost = 0;
     for (const ing of r.ingredients) cost += mkt(ing.id) * ing.qty;
     cost /= y;
+    // A duty item's cost is the time to get one, at DUTY_RATE.
+    if (r.duty) cost = r.minutes * DUTY_RATE;
     const revenue = p.listAt * (1 - cfg.tax);
     const margin = revenue - cost;
     if (margin <= 0) continue;
+    // Shown in the Time tooltip; the ranking goes by margin, as for a craft.
+    const gilPerMin = r.duty ? revenue / r.minutes : 0;
 
     const parts = r.ingredients.map(x => ({ ...x, unit: mkt(x.id), avail: availOf(x.id),
       canGather: GATHERABLE.has(x.id), craftable: BY_ITEM.has(x.id),
@@ -1063,7 +1108,7 @@ function buildCandidates(pool, cfg) {
 
     // Nothing caps quantity any more. Every world in the region is reachable, so
     // a material is never unobtainable — only dearer, and the ladder handles that.
-    rows.push({ ...r, ...p, demand, cost, margin, parts, stack,
+    rows.push({ ...r, ...p, demand, cost, margin, parts, stack, gilPerMin,
       inflow: inflow.known ? inflow.perWeek : 0, inflowInfo: inflow,
       hasSeal: parts.some(x => x.seal),
       // A part with no market price is in the cost at zero. Say so.
@@ -1234,7 +1279,8 @@ function trueMargin(row, k, before) {
                                  craftable: x.craftable, canGather: x.canGather });
   }
   const revenue = row.listAt * (1 - (LAST && LAST.cfg ? LAST.cfg.tax : 0.05));
-  const mats = cost / Math.max(1, units);
+  // A duty item's "materials" are its time, at DUTY_RATE a minute.
+  const mats = row.duty ? row.minutes * DUTY_RATE : cost / Math.max(1, units);
   return { each: revenue - mats, mats, short, unpriced, units };
 }
 
@@ -1261,6 +1307,25 @@ function inflowNote(r) {
 }
 
 const marginOf = it => trueMargin(it.row, it.k, it.before);
+
+// The Supply cell: "1+3/wk vs 5/wk", with the arithmetic in its tooltip.
+function supplyCell(r) {
+  return '<td title="' + num(r.supply) + ' units listed now' +
+            (r.junk ? ' (listings above twice the sale price count half)' : '') + ', ' +
+            (r.inflowInfo && r.inflowInfo.known ? 'plus ' + r.inflow.toFixed(1) + ' a week being listed by others, ' : '') +
+            'against weekly demand of ' + r.demand.toFixed(1) + '. Gap of ' +
+            Math.max(0, r.demand - r.supply - (r.inflow || 0)).toFixed(1) + ', of which at most ' +
+            slotsFor(r, LAST.cfg.margin == null ? 0.2 : LAST.cfg.margin) * stackOf(r) +
+            ' should be filled after the safety margin' + (stackOf(r) > 1 ? ', in stacks of ' + stackOf(r) : '') +
+            '.">' + num(r.supply) + (r.clipped ? '+' : '') +
+            // "1+3/wk vs 5/wk": listed now, plus what others list in a week,
+            // against demand (Shaun, 2026-09-19). No earlier reading, no term.
+            (r.inflowInfo && r.inflowInfo.known ? '+' + r.inflow.toFixed(0) + '/wk' : '') +
+            ' <span style="color:var(--muted)">vs ' + r.demand.toFixed(0) + '/wk</span></td>';
+}
+
+// Minutes as a person reads them.
+const timeText = m => m < 90 ? Math.round(m) + " min" : (m / 60).toFixed(m < 600 ? 1 : 0) + " h";
 
 // Order and priority-band a bundle by its real, ladder-walked value.
 function bandFor(p) {
@@ -1372,24 +1437,34 @@ function matTable(list, splitGathering) {
 function render() {
   if (!LAST) return;
   const { rows, cfg } = LAST;
-  const { pfs, trimmed, n } = plan(rows, cfg);
+  const { pfs, trimmed, n } = plan(rows.filter(r => !r.duty), cfg);
   // Under Max the field shows the count it came to, and keeps it when Max is
   // unticked, so the bundles stay as they are until the field is changed.
   if (cfg.pfMax) { cfg.portfolios = n; $("pf").value = n; }
-  const grand = pfs.reduce((a, p) => a + p.value, 0);
-  const used = pfs.reduce((a, p) => a + p.slots, 0);
-  const allItems = pfs.flatMap(p => p.items);
+  // Duty items fill bundles of their own by the same rules (Shaun, 2026-09-26:
+  // "people who aren't crafters will have items to list as well").
+  const dutyRows = rows.filter(r => r.duty);
+  const dpfs = dutyRows.length ? plan(dutyRows, cfg).pfs : [];
+  // A duty item's time is costed in gil only to sort it (Shaun, 2026-09-26:
+  // "The cost in the tool should still display the time, not the gil"); what
+  // it shows is what it sells for after tax.
+  const saleOf = it => it.k * stackOf(it.row) * it.row.listAt * (1 - cfg.tax);
+  const dutyWorth = p => p.items.reduce((a, it) => a + saleOf(it), 0);
+  const grand = pfs.reduce((a, p) => a + p.value, 0) + dpfs.reduce((a, p) => a + dutyWorth(p), 0);
+  const used = pfs.concat(dpfs).reduce((a, p) => a + p.slots, 0);
+  const craftItems = pfs.flatMap(p => p.items);
+  const allItems = craftItems.concat(dpfs.flatMap(p => p.items));
   const hasOver = allItems.some(it => it.over);
 
-  const guildCraft = materialsFor(allItems, false);
-  const guildRaw = materialsFor(allItems, true);
+  const guildCraft = materialsFor(craftItems, false);
+  const guildRaw = materialsFor(craftItems, true);
 
   let html = '<div class="panel"><h2>This week on ' + esc(cfg.world) + '</h2><div class="totals">' +
     '<div><span>Expected profit, buying every material</span><strong>' + gil(grand) + '</strong></div>' +
-    '<div><span>Bundles</span><strong>' + pfs.length + '</strong></div>' +
+    '<div><span>Bundles</span><strong>' + pfs.length + (dpfs.length ? ' + ' + dpfs.length + ' duty' : '') + '</strong></div>' +
     '<div><span>Slots used</span><strong>' + used + '</strong></div>' +
     '</div><div class="row" style="margin-top:0"><button id="btnTeamcraft" class="secondary small" type="button" ' +
-    'title="Copies a link to the clipboard. Open it and Teamcraft adds every craft in every bundle to a list.">' +
+    'title="Copies a link to the clipboard. Open it and Teamcraft adds every craft and duty item in every bundle to a list.">' +
     COPY_ICON + 'Export To Teamcraft</button><span class="status" id="teamcraftStatus"></span></div>' +
     '<div class="hint">Claim a bundle by number in Discord. ' +
     (hasOver ? 'A craft is in two bundles only as Overflow: its shortage was more than Max of one item, and the rest fills slots that would otherwise be empty. '
@@ -1402,7 +1477,7 @@ function render() {
       trimmed.map(t => esc(t.name) + ' ' + t.from + ' &rarr; ' + t.to).join('; ') + '.</div>' : '') +
     '</div>';
 
-  const tabs = [["pf","Bundles",pfs.length],["all","All items",rows.length],
+  const tabs = [["pf","Bundles",pfs.length + dpfs.length],["all","All items",rows.length],
     ["cmat","Crafting Materials",""],["rmat","Raw Materials",""],
     ["gcmat","Guild Crafting Mats",guildCraft.length],["grmat","Guild Raw Mats",guildRaw.length]];
   html += '<div class="panel"><div class="tabs">' + tabs.map(([k,l,n]) =>
@@ -1446,18 +1521,7 @@ function render() {
           (it.over ? overTag() : '') + '<div class="mats">' + mats + '</div></td>' +
           '<td class="l"><span class="pri ' + cls + '">' + label + '</span></td>' +
           '<td class="l">' + esc(r.job) + '</td><td>' + r.level + '</td><td>' + gil(r.listAt) + '</td>' +
-          '<td title="' + num(r.supply) + ' units listed now' +
-            (r.junk ? ' (listings above twice the sale price count half)' : '') + ', ' +
-            (r.inflowInfo && r.inflowInfo.known ? 'plus ' + r.inflow.toFixed(1) + ' a week being listed by others, ' : '') +
-            'against weekly demand of ' + r.demand.toFixed(1) + '. Gap of ' +
-            Math.max(0, r.demand - r.supply - (r.inflow || 0)).toFixed(1) + ', of which at most ' +
-            slotsFor(r, LAST.cfg.margin == null ? 0.2 : LAST.cfg.margin) * stackOf(r) +
-            ' should be filled after the safety margin' + (stackOf(r) > 1 ? ', in stacks of ' + stackOf(r) : '') +
-            '.">' + num(r.supply) + (r.clipped ? '+' : '') +
-            // "1+3/wk vs 5/wk": listed now, plus what others list in a week,
-            // against demand (Shaun, 2026-09-19). No earlier reading, no term.
-            (r.inflowInfo && r.inflowInfo.known ? '+' + r.inflow.toFixed(0) + '/wk' : '') +
-            ' <span style="color:var(--muted)">vs ' + r.demand.toFixed(0) + '/wk</span></td>' +
+          supplyCell(r) +
           '<td title="At market price the materials come to ' + gil(r.cost) +
             ' per unit, which is what the ranking used. This is what they cost per unit for the ' +
             'quantity shown, walking the listings cheapest first and never paying more than the ' +
@@ -1471,7 +1535,33 @@ function render() {
       }
       html += '</tbody></table></div></div>';
     });
-    if (!pfs.length) html += '<div class="hint">Nothing was allocated. Loosen the filters above.</div>';
+    // Duty bundles: the item, how many, list price, supply and the time to
+    // get them. How and where is left to the wiki (Shaun, 2026-09-26).
+    dpfs.forEach((p, i) => {
+      const { items } = bandFor(p), total = dutyWorth(p);
+      const mins = items.reduce((a, it) => a + it.k * stackOf(it.row) * it.row.minutes, 0);
+      html += '<div class="pf"><header><div><h3>Duty Bundle ' + (i + 1) + '</h3>' +
+        '<div class="jobs">' + p.slots + ' slots &nbsp;—&nbsp; about ' + timeText(mins) + ' of duties</div></div>' +
+        '<div class="right"><span class="worth">~' + gil(total) + ' gil</span></div></header>' +
+        '<div class="tablewrap"><table><thead><tr><th class="l">Item</th><th>List at</th><th>Supply</th>' +
+        '<th title="Estimated time in duties to get this many: minutes to reach the coffer, times how many items the coffer can drop, per unit.">Time</th>' +
+        '<th title="What this many sell for after tax.">Expected</th><th>Made</th></tr></thead><tbody>';
+      for (const it of items) {
+        const r = it.row, units = it.k * stackOf(r);
+        const key = r.itemId + (it.over ? ":o" + (i + 1) : "") + ":d";
+        const made = PROGRESS.crafted[key] || 0;
+        html += '<tr' + (made >= it.k ? ' class="done"' : '') + '><td class="l"><span class="qty">' + it.k + '&times;</span> ' +
+          itemLink(r.name) + (stackOf(r) > 1 ? ' <span class="qty">(' + stackOf(r) + ')</span>' : '') + (it.over ? overTag() : '') + '</td>' +
+          '<td>' + gil(r.listAt) + '</td>' + supplyCell(r) +
+          '<td title="About ' + Math.round(r.minutes) + ' minutes a unit, duty level ' + r.level + '; ' +
+            gil(r.gilPerMin) + ' gil a minute after tax, against ' + gil(DUTY_RATE) + ' for the time.">' + timeText(units * r.minutes) + '</td>' +
+          '<td>' + gil(saleOf(it)) + '</td>' +
+          '<td><input class="track" type="number" min="0" max="99" data-craft="' + key +
+          '" data-need="' + it.k + '" value="' + made + '"></td></tr>';
+      }
+      html += '</tbody></table></div></div>';
+    });
+    if (!pfs.length && !dpfs.length) html += '<div class="hint">Nothing was allocated. Loosen the filters above.</div>';
   }
 
   if (TAB === "all") {
@@ -1496,7 +1586,9 @@ function render() {
           r.junk + ' overpriced)</span>' : '') + '</td>' +
         '<td title="' + esc(inflowNote(r)) + '">' +
           (r.inflowInfo && r.inflowInfo.known ? r.inflow.toFixed(1) : '<span style="color:var(--muted)">—</span>') + '</td>' +
-        '<td>' + gil(r.cost) + '</td><td>' + gil(r.margin) + '</td></tr>';
+        (r.duty ? '<td title="Time to get one; sorted as ' + gil(r.cost) + ' gil at ' + gil(DUTY_RATE) + ' a minute.">' + timeText(r.minutes) + '</td>' +
+                  '<td>' + gil(r.listAt * (1 - LAST.cfg.tax)) + '</td></tr>'
+                : '<td>' + gil(r.cost) + '</td><td>' + gil(r.margin) + '</td></tr>');
     html += '</tbody></table></div>';
   }
 
@@ -1543,10 +1635,10 @@ function render() {
   $("btnTeamcraft").onclick = async () => {
     const url = teamcraftLink(allItems);
     const ok = await copyText(url);
-    const crafts = new Set(allItems.map(it => it.row.itemId)).size;
+    const kinds = new Set(allItems.map(it => it.row.itemId)).size;
     const units = allItems.reduce((a, it) => a + it.k * stackOf(it.row), 0);
     $("teamcraftStatus").textContent = ok
-      ? "Link copied: " + crafts + " crafts, " + units + " units. Paste it into the address bar."
+      ? "Link copied: " + kinds + " items, " + units + " units. Paste it into the address bar."
       : "Could not reach the clipboard. The link: " + url;
   };
   shapeTicks();
@@ -2058,6 +2150,9 @@ function applySession(d) {
   if (c.minSales != null) $("minsales").value = c.minSales;
   if (c.margin != null) $("margin").value = Math.round(c.margin * 100);
   $("hqonly").checked = !!c.hq;
+  $("xDuty").checked = !!c.duty;
+  $("dutyLevelWrap").style.display = c.duty ? "inline-flex" : "none";
+  if (c.dutyLevel) $("dutyLevel").value = c.dutyLevel;
   // Retainers, each with its tax, and the flat sales list handed back to them
   // by name. Format 4 and older: one field of names, one tax, no names on
   // the sales, so those go under the first retainer.
@@ -2104,6 +2199,14 @@ function shapeTicks() {
   for (const [id, key, read] of SHAPE) tickOf(id).disabled = !LAST || read($(id).value) === LAST.cfg[key] ||
     (id === "pf" && $("pfmax").checked);
 }
+// Duty Level is set when Duty Items is ticked, and only then (Shaun,
+// 2026-09-26): Max recipe level - 20, for a duty run unsynced, alone.
+$("xDuty").onchange = () => {
+  const on = $("xDuty").checked;
+  $("dutyLevelWrap").style.display = on ? "inline-flex" : "none";
+  if (on) $("dutyLevel").value = Math.max(1, (+$("maxlvl").value || 50) - 20);
+};
+
 // Max works out Bundles to make itself, so the field is shut while it is on.
 // A click on a checkbox is deliberate, so it re-plans at once, no tick.
 $("pfmax").onchange = () => {
@@ -2243,7 +2346,14 @@ $("btnScan").onclick = async () => {
   try {
     const chosen = new Set([...document.querySelectorAll("#cats input:checked")].map(i => i.value));
     const pool = RECIPES.filter(r => chosen.has(r.category));
-    if (!pool.length) { setStatus("Tick at least one category first.", true); return; }
+    // Duty items only when ticked; a craft already in the pool stays a craft.
+    const dutyOn = $("xDuty").checked, dutyLevel = Math.max(1, +$("dutyLevel").value || 1);
+    let dutyCount = 0;
+    if (dutyOn) {
+      const inPool = new Set(pool.map(r => r.itemId));
+      for (const d of dutyCandidates(dutyLevel)) if (!inPool.has(d.itemId)) { pool.push(d); dutyCount++; }
+    }
+    if (!pool.length) { setStatus("Tick at least one category, or Duty Items, first.", true); return; }
 
     const cfg = { world: $("world").value.trim() || "Seraph",
       portfolios: +$("pf").value || 5, pfMax: $("pfmax").checked, slots: +$("slots").value || 20,
@@ -2251,7 +2361,7 @@ $("btnScan").onclick = async () => {
       staleDays: +$("stale").value || 180, minPrice: +$("minprice").value || 0,
       minSales: +$("minsales").value || 0,
       margin: (+$("margin").value >= 0 ? +$("margin").value : 20) / 100,
-      hq: $("hqonly").checked,
+      hq: $("hqonly").checked, duty: dutyOn, dutyLevel,
       mine: $("mine").value.trim(),
       // Your retainers, the tax each one's sales cleared at, and the sales
       // themselves, each carrying its retainer's name and tax.
@@ -2347,7 +2457,9 @@ $("btnScan").onclick = async () => {
     // Two different populations get counted here and saying so matters: `pool` is
     // the recipes in the ticked categories, `res.total` is those plus every
     // material in their trees, all of which need a price.
-    let msg = rows.length + " of " + pool.length + " recipes passed the filters.";
+    let msg = rows.length + " of " + pool.length + " " + (dutyCount ? "items" : "recipes") + " passed the filters." +
+      (dutyCount ? "  Duty items: " + rows.filter(r => r.duty).length + " of " + dutyCount + " at duty level " + dutyLevel +
+                   " or below passed, their time costed at " + DUTY_RATE.toLocaleString() + " gil a minute." : "");
     // Incoming supply: how much of the result rests on a measurement.
     const measured = rows.filter(r => r.inflowInfo && r.inflowInfo.known);
     if (!READINGS.files.length) {

@@ -142,6 +142,20 @@ UNI[9007] = { lastUploadTime: NOW * 1000,
   listings: [{ pricePerUnit: 4800, quantity: 99, hq: false, retainerName: "Rival-ingot" }],
   recentHistory: ingotHist };
 
+// Duty items (2026-09-26). Added to the page's list for the test only:
+//   Test Minion  duty level 30, 60 minutes, sells at 300,000 -> 285,000 after
+//                tax, less 60,000 of time at 1,000 a minute = 225,000 a unit:
+//                in a Duty Bundle
+//   Test Roll    duty level 20, 10 minutes, sells at 5,000 -> 4,750 after tax,
+//                less 10,000 of time: no margin, left out
+//   Test Card    duty level 40, above the default Duty Level of 50 - 20 = 30:
+//                never priced
+const TEST_DUTY = [[9011, "Test Minion", [[30, 60]]], [9012, "Test Roll", [[20, 10]]], [9013, "Test Card", [[40, 5]]]];
+const dutyHist = (price, who) => [...Array(10)].map((_, i) => ({ hq: false, pricePerUnit: price, quantity: 1, timestamp: NOW - i * DAY - 60, buyerName: who + i }));
+UNI[9011] = { lastUploadTime: NOW * 1000, listings: [], recentHistory: dutyHist(300000, "Minion-") };
+UNI[9012] = { lastUploadTime: NOW * 1000, listings: [], recentHistory: dutyHist(5000, "Roll-") };
+UNI[9013] = { lastUploadTime: NOW * 1000, listings: [], recentHistory: dutyHist(900000, "Card-") };
+
 // Universalis' hq=true returns only the HQ side of listings and history, and
 // nothing at all for an item that cannot be HQ.
 const hqOnly = it => ({ ...it,
@@ -375,6 +389,28 @@ const hqOnly = it => ({ ...it,
   await page.check("#hqonly");
   const hq = await scan();
 
+  // Duty Items: until now the box was unticked, so none of the three may have
+  // been priced. Tick it: Duty Level appears at 30; scan again.
+  const priced = id => seen.some(u => u.includes("universalis.app") && u.split("/").pop().split("?")[0].split(",").includes(String(id)));
+  await page.evaluate(t => DUTY_ITEMS.push(...t), TEST_DUTY);
+  const duty = { boxAtStart: await page.isChecked("#xDuty"), fieldHidden: await page.$eval("#dutyLevelWrap", e => getComputedStyle(e).display === "none"),
+                 pricedBefore: [9011, 9012, 9013].filter(priced) };
+  await page.uncheck("#hqonly");
+  await page.check("#xDuty");
+  duty.level = await page.inputValue("#dutyLevel");
+  await scan();
+  duty.rows = await page.evaluate(() => LAST.rows.filter(r => r.duty).map(r => ({ name: r.name, level: r.level, minutes: r.minutes,
+    gilPerMin: Math.round(r.gilPerMin), margin: Math.round(r.margin), slots: slotsFor(r, LAST.cfg.margin) })));
+  duty.heads = await page.$$eval("#out .pf h3", hs => hs.map(h => h.textContent));
+  duty.dutyRow = await page.$$eval("#out .pf", ps => { const p = ps.find(x => /Duty Bundle/.test(x.querySelector("h3").textContent));
+    return p ? [...p.querySelectorAll("tbody tr td")].map(td => td.textContent.trim()).slice(0, 5) : null; });
+  duty.cardPriced = priced(9013);
+  await page.evaluate(() => { window.__copied = null; navigator.clipboard.writeText = async t => { window.__copied = t; }; });
+  await page.click("#btnTeamcraft");
+  const dl = await page.evaluate(() => window.__copied);
+  duty.teamcraftHasMinion = !!dl && Buffer.from(decodeURIComponent(dl.split("/import/")[1]), "base64").toString().split(";").some(x => x.startsWith("9011,"));
+  duty.status = (await page.textContent("#status")).match(/Duty items:[^.]*\./)?.[0];
+
   console.log("version stamp      :", stamp);
   console.log("own-retainer field :", JSON.stringify(mineField), "(page start " + JSON.stringify(mineAtStart) +
               ", with a third " + JSON.stringify(mineWithThree) + ")");
@@ -392,6 +428,8 @@ const hqOnly = it => ({ ...it,
   console.log("stacks and junk    :", JSON.stringify(stackRows),
               "(want Ingot stack 20, every other 1; Wall supply 2.5 (own listing out, junk at half) and Lamp 1)");
   console.log("ingot 5 slots      :", JSON.stringify(ingotTm), "(want crafts5 34, units5 100, mats5 680)");
+  console.log("duty items         :", JSON.stringify(duty),
+              "(want box false, field hidden, nothing priced before; level 30; only Test Minion (30, 60 min, margin 225,000, 6 slots) in a Duty Bundle, time 6.0 h, Expected 1,710,000 (sale value; the 225,000 margin only sorts); Test Card never priced; Teamcraft has it)");
   console.log("screenshot lines   :");
   for (const l of parsed) console.log("   -", l);
   for (const [label, r] of [["HQ only OFF", nq], ["HQ only ON", hq]]) {

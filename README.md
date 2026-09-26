@@ -12,6 +12,9 @@ scroll over a number field changes it and must not re-plan by itself (v09.19.26.
 Bundles to make (v09.25.26.1) works the number out instead: as few bundles as hold every
 unit the shortage allows (section 8), re-planned at once when ticked. **Export To
 Teamcraft** copies a Teamcraft import link for every craft in the bundles (section 8).
+**Duty Items** (v09.26.26.3), a box above the category list, adds items that drop from
+dungeons, trials and raids, in bundles of their own (section 8a). It starts unticked, and
+nothing about them is priced unless it is ticked.
 Every other setting takes effect at the next scan.
 
 **This document describes the tool as it is built today.** The incoming-supply term was
@@ -20,7 +23,7 @@ built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older des
 of it that remain unbuilt.
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.26.26.2`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.26.26.5`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)
@@ -171,7 +174,8 @@ item and the planner reads them live.
 
 **What it watches** (since 2026-09-26; Shaun, 2026-09-25: "track whatever is currently
 able to be listed by the planner"): every tradeable recipe result at any level, stars
-included, cut to what Universalis lists as marketable. (Gatherables and fish were in it
+included, and the duty items (section 8a, read from `DUTY_ITEMS` in index.html), cut to
+what Universalis lists as marketable. (Gatherables and fish were in it
 for the one day the planner offered them; Shaun removed both on 2026-09-26.) Until then it was the furnishing recipes at level 50 and under, 398 items.
 Measured 2026-09-25 on all 16,845 marketable items (a superset): a run took 75 minutes,
 8 of 422 batches of 40 failed with HTTP 504 (1.9% of items), and 27.4% of boards had been
@@ -642,6 +646,58 @@ its import page does anyway). One row per craft, the quantities of all its rows 
 a craft split by Overflow is one line. Opening the link shows Teamcraft's import page,
 where a recipe can be picked per item and the lot added to a list.
 
+### 8a. Duty items
+
+Shaun, 2026-09-26: the real value in items that cannot be crafted is in dungeon drops,
+and duty items get **bundles of their own** "so people who aren't crafters will have items
+to list as well". A **Duty Items** box above the category list, unticked by default;
+**nothing about duty items is priced unless it is ticked**. Ticking it shows **Duty
+Level**, filled in at that moment — and only then — with Max recipe level − 20, because a
+duty is run unsynced, alone, about 20 levels above it ("I may have several level 100 guild
+members ready to kill, but only a few level 60 or 70 crafters").
+
+**The list** is built into the page (`DUTY_ITEMS`), so nothing is looked up to find the
+items. How it was made, 2026-09-26: the 361 dungeons, trials and raids in the Duty Finder
+(XIVAPI ContentFinderCondition types Dungeons, Trials and Raids; Variant and Criterion,
+Ultimate, the Chaotic alliance raid, Unreal trials and three placeholder rows left out);
+the Loot section of each one's page on ffxiv.consolegameswiki.com (boss coffers, treasure
+coffers and fixed drops); 7,013 item names, of which 550 are marketable (dungeon gear is
+untradeable); less 35 materia, 13 materials that drop only when synced, and two by hand
+(White Raven Armor Fragment, synced; Felyne Support Team Cart Horn, whose coffer is itself
+rare). **500 items.** The working files `duties.md` / `dungeon-drops.md` (and `.csv`)
+hold the lists with their sources.
+
+**Time, not material cost.** A duty item has no price to buy, so its cost is the time to
+get one:
+
+```
+minutes = time to reach the coffer x number of items the coffer can drop
+```
+
+A 1-in-N coffer takes N runs on average. Dungeons: treasure coffer n at 5n − 2 minutes,
+boss n at 5n (Shaun's 3, 5, 8, 10, 13, 15, continued to 18, 20 … for the ten early
+dungeons with more). Trials 1 minute, raids 5. A drop "at a fixed rate" counts as 100%, one
+run to that boss. Drops are taken as evenly weighted; rare ones are adjusted by hand as
+they turn up. An item from several duties uses the fastest one at or below Duty Level.
+Example: Air-wheeler M9, Vanguard's final boss coffer of 32 items: 15 × 32 = 480 minutes.
+
+```
+cost   = minutes x 1,000 gil
+margin = listAt x (1 - tax) - cost
+```
+
+**Time is costed at 1,000 gil a minute** (Shaun, 2026-09-26: "Anything below that, and we
+can get more gil by running other content"), so an item that pays less than that has no
+margin and drops out, and duty items rank by what a slot is worth, exactly like crafts:
+"setting everything at the same cost of time keeps that priority of gil/minute while still
+allowing it to sort by slot value." (v09.26.26.3 ranked them by gil a minute instead; it
+was never pushed.) Price, demand, supply, incoming supply, stack and the filters are the
+same as for a craft. Duty bundles are planned apart from craft bundles by the same rules —
+Bundles to make or Max, Slots per bundle, Max of one item, Overflow. A duty row shows the item, how many, List at,
+Supply, the estimated **Time** for that many, Expected and a Made tally. **The gil cost of the time is used only to sort** (Shaun: "The cost in the tool should still display the time, not the gil"): Expected, the bundle's worth and the total show what the items sell for after tax, and on All items the Mats each column shows the time; how and where to
+get it is left to the wiki. Duty items are not in the materials tabs. Export To Teamcraft
+includes them. The tracker watches them, reading the ids from the same line of the page.
+
 ### 9. Priority bands
 
 Within a bundle, items are sorted by their contribution to that bundle's total expected
@@ -665,6 +721,8 @@ Judgment calls, not game rules.
 | Stack window | 14 days | The stack size is the median quantity per sale over this period. |
 | Listings fetched | Cheapest 20 per material | Twenty or more real listings is also the point at which a craft counts as too crowded to enter. |
 | Safety margin | 20% | Share of the demand-minus-supply gap deliberately left unfilled. Covers competitors and anything else the model does not see. |
+| Duty time cost | 1,000 gil a minute | A duty item's cost; one that pays less has no margin and is left out (section 8a). Fixed in the page, not a setting. |
+| Duty Level default | Max recipe level − 20 | Set when Duty Items is ticked (section 8a). |
 | Max of one item | 20 | Upper limit on units of a single item within one bundle. Shortage beyond it goes to other bundles as Overflow rows (section 8) while any have slots free. |
 | Minimum sale price | 5,000 gil | Items whose one slot (list price x stack) sells for less are excluded. |
 | Minimum sales per week | 1 | Items below this are excluded. |

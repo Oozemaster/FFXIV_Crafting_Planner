@@ -94,6 +94,13 @@ async function watchList() {
   };
   await search("Recipe", "RecipeLevelTable.ClassJobLevel>=0", "ItemResult.Name,ItemResult.ItemUICategory.Name",
                f => add(f.ItemResult, "Recipe"));
+  // Duty items (2026-09-26): the planner's own list, read from the one line of
+  // index.html that holds it, so there is a single copy.
+  const page = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
+  const m = page.match(/^const DUTY_ITEMS = (\[.*\]);$/m);
+  if (!m) throw new Error("DUTY_ITEMS not found in index.html");
+  for (const [id, name] of JSON.parse(m[1]))
+    add({ row_id: id, fields: { Name: name, ItemUICategory: { fields: { Name: "Duty item" } } } }, "Duty item");
   return [...seen.values()].sort((a, b) => a.id - b.id);
 }
 
