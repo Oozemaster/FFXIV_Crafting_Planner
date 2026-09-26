@@ -338,27 +338,22 @@ const hqOnly = it => ({ ...it,
   const ingotTm = await page.evaluate(() => { const r = LAST.rows.find(r => r.name === "Test Ingot"); if (!r) return null;
     const t = trueMargin(r, 5, 0); return { crafts5: craftsFor(r, 5), units5: t.units, mats5: t.mats, each5: Math.round(t.each * 100) / 100 }; });
 
-  // Bundles to make re-plans the last scan in place, no scan (2026-09-19),
-  // but only once its tick is clicked: typing 3 alone must change nothing and
-  // light the tick; the tick must then show three bundles and leave the
-  // status line untouched; Enter applies too.
-  const statusBefore = await page.textContent("#status");
+  // Bundles to make re-plans the last scan with no scan, but only through
+  // Apply to last scan (the per-field ticks went on 2026-09-26): typing 3
+  // alone, or pressing Enter, changes nothing; Apply gives three bundles.
   const bundles = async () => (await page.$$("#out .pf")).length;
-  const tickOff = async () => page.$eval('[data-tick="pf"]', b => b.disabled);
-  const replan = { tickAtRest: await tickOff() };
+  const replan = { ticksLeft: await page.$$eval("[data-tick]", t => t.length) };
   await page.fill("#pf", "3");
   await page.dispatchEvent("#pf", "input");
-  replan.typedOnly = await bundles();
-  replan.tickLit = !(await tickOff());
-  await page.click('[data-tick="pf"]');
-  replan.ticked = await bundles();
-  replan.tickAfter = await tickOff();
-  replan.tab = await page.textContent('#out .tabs button[data-tab="pf"]');
-  replan.statusSame = (await page.textContent("#status")) === statusBefore;
-  await page.fill("#pf", "5");
-  await page.dispatchEvent("#pf", "input");
   await page.press("#pf", "Enter");
-  replan.enter = await bundles();
+  replan.typedOnly = await bundles();
+  await page.click("#btnReapply");
+  replan.applied = await bundles();
+  replan.tab = await page.textContent('#out .tabs button[data-tab="pf"]');
+  await page.fill("#pf", "5");
+  await page.click("#btnReapply");
+  replan.back = await bundles();
+  const statusBefore = await page.textContent("#status");
 
   // Max (2026-09-25): as few bundles as hold every unit the shortage allows.
   // Ticking it re-plans at once, shuts the field and writes the count into it;
@@ -369,7 +364,6 @@ const hqOnly = it => ({ ...it,
   maxRun.bundles = await bundles();
   maxRun.field = await page.inputValue("#pf");
   maxRun.fieldShut = await page.$eval("#pf", i => i.disabled);
-  maxRun.tickShut = await tickOff();
   maxRun.placed = await slotsUsed();
   maxRun.allowed = await page.evaluate(() => LAST.rows.reduce((a, r) => a + slotsFor(r, LAST.cfg.margin), 0));
   maxRun.statusSame = (await page.textContent("#status")) === statusBefore;
@@ -439,9 +433,9 @@ const hqOnly = it => ({ ...it,
   console.log("tax rule matched   :", JSON.stringify(taxRule), "(want at5 1, at3 0)");
   console.log("ladder skip        :", JSON.stringify(ladderRule), "(want first 4500, next 5000, far 20000, farImported 10)");
   console.log("re-plan, no scan   :", JSON.stringify(replan),
-              "(want tickAtRest true, typedOnly 5, tickLit true, ticked 3, tickAfter true, tab Bundles3, statusSame true, enter 5)");
+              "(want ticksLeft 0, typedOnly 5, applied 3, tab Bundles3, back 5)");
   console.log("max bundles        :", JSON.stringify(maxRun),
-              "(want placed = allowed, field = bundles, fieldShut/tickShut true, statusSame true, off keeps the count and opens the field)");
+              "(want placed = allowed, field = bundles, fieldShut true, statusSame true, off keeps the count and opens the field)");
   console.log("teamcraft export   :", JSON.stringify(tc));
   console.log("apply to last scan :", JSON.stringify(reapply),
               "(want enabled, names Test Ingot/Lamp/Wall, hqKept false, status names HQ only, newRequests 0, restored 5)");
