@@ -15,7 +15,9 @@ Teamcraft** copies a Teamcraft import link for every craft in the bundles (secti
 **Duty Items** (v09.26.26.3), a box above the category list, adds items that drop from
 dungeons, trials and raids, in bundles of their own (section 8a). It starts unticked, and
 nothing about them is priced unless it is ticked.
-**✓ Apply to last scan** (v09.26.26.6), top right of Setup, filters and sorts the last
+**✓ Apply to last scan** (v09.26.26.6), top right of Setup, is grey while nothing has
+changed and lit once any setting differs from what the bundles were made with (since
+v09.26.26.10, as the old per-field ticks were). It filters and sorts the last
 scan again with the settings as they now stand, without a new request: the minimum price
 and sales, data age, tax, margin, bundle shape, retainers and sales, fewer categories, a
 lower Duty Level. World, HQ only, Max recipe level, newly ticked categories and a higher
@@ -33,7 +35,7 @@ built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older des
 of it that remain unbuilt.
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.26.26.9`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.26.26.10`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)

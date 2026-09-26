@@ -120,7 +120,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.26.26.9</span></p>
+    <span class="stamp">v09.26.26.10</span></p>
 </header>
 
 <div class="panel">
@@ -128,7 +128,7 @@
     <h2>Setup</h2>
     <!-- Filters and sorting again on the last scan's market data, no new
          requests (Shaun, 2026-09-26: "adjust my filters after the scan"). -->
-    <button type="button" id="btnReapply" class="secondary small" disabled title="Sort and filter the last scan again with every setting as it is now — bundle shape included — without scanning the market again. On a loaded session, filters can be tightened but not loosened past what was scanned. World, HQ only, Max recipe level, newly ticked categories and a higher Duty Level need a new scan.">&#10003; Apply to last scan</button>
+    <button type="button" id="btnReapply" class="secondary small" disabled title="Lit when a setting has changed since the bundles were made. Sorts and filters the last scan again with every setting as it is now — bundle shape included — without scanning the market again. On a loaded session, filters can be tightened but not loosened past what was scanned. World, HQ only, Max recipe level, newly ticked categories and a higher Duty Level need a new scan.">&#10003; Apply to last scan</button>
   </div>
   <div class="grid">
     <div><label class="field" for="world">World</label><input type="text" id="world" value="Seraph"></div>
@@ -2191,7 +2191,7 @@ function applySession(d) {
   // it back returns to them (v09.26.26.9).
   LAST = { rows: d.rows || [], cfg: c, names, saved: d.rows || [], savedCfg: c, savedAt: Date.parse(d.saved) || Date.now() };
   render();
-  $("btnReapply").disabled = false;
+  markApplied();
 }
 
 // Bundles to make, Slots per bundle, Max of one item and Safety margin had a
@@ -2211,7 +2211,11 @@ $("xDuty").onchange = () => {
 // A click on a checkbox is deliberate, so it re-plans at once.
 $("pfmax").onchange = () => {
   $("pf").disabled = $("pfmax").checked;
-  if (LAST) { LAST.cfg.pfMax = $("pfmax").checked; render(); }
+  if (LAST) {
+    LAST.cfg.pfMax = $("pfmax").checked; render();
+    if (LAST.applied) { const a = JSON.parse(LAST.applied); a[2] = JSON.parse(settingsSig())[2]; LAST.applied = JSON.stringify(a); }
+    reapplyState();
+  }
 };
 
 $("btnSave").onclick = () => {
@@ -2369,11 +2373,33 @@ function reapply() {
   const rows = buildCandidates(pool, cfg);
   LAST = { rows, cfg, names: LAST.names, pool: LAST.pool };
   render();
+  markApplied();
   setStatus("Applied the settings to the last scan, no new requests: " + rows.length + " of " + pool.length +
     " passed the filters." + (needScan.length ? "  Not applied, because they need a new scan: " + needScan.join(", ") + "." : ""),
     false);
 }
 $("btnReapply").onclick = reapply;
+
+// The button is lit only while a setting differs from what the bundles were
+// made with, as the per-field ticks were (Shaun, 2026-09-26). Everything the
+// button applies is in the signature. The Max box applies at once, so it and
+// Bundles to make (which Max fills in) sit in slot 2, kept current by its handler.
+let SCANNING = false;
+function settingsSig() {
+  const f = id => $(id).value;
+  return JSON.stringify([f("world"), f("maxlvl"), $("pfmax").checked ? "max" : f("pf"), f("slots"), f("maxper"),
+    f("tax"), f("stale"), f("minprice"), f("minsales"), f("margin"), $("hqonly").checked,
+    [...document.querySelectorAll("#cats input:checked")].map(i => i.value),
+    $("xDuty").checked, $("xDuty").checked ? f("dutyLevel") : "",
+    readRetainers(), readOwnSales()]);
+}
+function markApplied(sig) { if (LAST) LAST.applied = sig || settingsSig(); reapplyState(); }
+function reapplyState() {
+  $("btnReapply").disabled = SCANNING || !LAST || !(LAST.pool || LAST.saved) || settingsSig() === LAST.applied;
+}
+for (const ev of ["input", "change", "click"]) document.addEventListener(ev, reapplyState);
+// Sales added from a screenshot arrive without an input event.
+new MutationObserver(() => reapplyState()).observe($("retainers"), { childList: true, subtree: true });
 
 // The same for a loaded session (v09.26.26.9). A session keeps the rows that
 // passed at scan time — price, demand, stack, supply, cost — but not the
@@ -2421,6 +2447,7 @@ function reapplySaved() {
   }
   LAST = { rows, cfg, names: LAST.names, saved: base, savedCfg: scan, savedAt: at };
   render();
+  markApplied();
   setStatus("Applied the settings to the loaded session: " + rows.length + " of its " + base.length + " rows pass." +
     (looser.length ? "  Looser than when it was scanned, so rows it left out cannot come back without a scan: " + looser.join(", ") + "." : "") +
     (kept.length ? "  Not applied, because they need a new scan: " + kept.join(", ") + "." : ""), false);
@@ -2468,7 +2495,8 @@ function buildPrices() {
 $("btnScan").onclick = async () => {
   $("btnScan").disabled = true;
   // No applying to a scan while the next one is half fetched.
-  $("btnReapply").disabled = true;
+  SCANNING = true; reapplyState();
+  const startSig = settingsSig();
   try {
     const chosen = new Set([...document.querySelectorAll("#cats input:checked")].map(i => i.value));
     const pool = RECIPES.filter(r => chosen.has(r.category));
@@ -2548,7 +2576,7 @@ $("btnScan").onclick = async () => {
     // The pool is kept so the settings can be applied again without a scan —
     // even when nothing passed, which is when loosening a filter and applying
     // it matters most (until v09.26.26.8 this case left the button off).
-    LAST = { rows, cfg, names, pool };
+    LAST = { rows, cfg, names, pool, applied: startSig };
     if (!rows.length) {
       $("out").innerHTML = "";
       setStatus("Nothing cleared the filters. Lower the minimum price or sales, widen the categories, " +
@@ -2603,9 +2631,9 @@ $("btnScan").onclick = async () => {
       : "Market scan failed: " + err.message, true);
   } finally {
     $("btnScan").disabled = false;
-    // However the scan ended, the button follows whether there is market data
-    // to apply the settings to.
-    $("btnReapply").disabled = !(LAST && (LAST.pool || LAST.saved));
+    // However the scan ended, the button follows whether there is something
+    // to apply the settings to, and whether anything has changed since.
+    SCANNING = false; reapplyState();
   }
 };
 </script>

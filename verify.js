@@ -342,14 +342,25 @@ const hqOnly = it => ({ ...it,
   // Apply to last scan (the per-field ticks went on 2026-09-26): typing 3
   // alone, or pressing Enter, changes nothing; Apply gives three bundles.
   const bundles = async () => (await page.$$("#out .pf")).length;
-  const replan = { ticksLeft: await page.$$eval("[data-tick]", t => t.length) };
+  const lit = async () => !(await page.$eval("#btnReapply", b => b.disabled));
+  const replan = { ticksLeft: await page.$$eval("[data-tick]", t => t.length), litAtRest: await lit() };
   await page.fill("#pf", "3");
   await page.dispatchEvent("#pf", "input");
   await page.press("#pf", "Enter");
   replan.typedOnly = await bundles();
+  replan.litAfterTyping = await lit();
+  await page.fill("#pf", "5");
+  replan.litWhenTypedBack = await lit();
+  await page.fill("#pf", "3");
   await page.click("#btnReapply");
   replan.applied = await bundles();
   replan.tab = await page.textContent('#out .tabs button[data-tab="pf"]');
+  replan.litAfterApply = await lit();
+  await page.check("#pfmax");
+  replan.litAfterMax = await lit();
+  await page.uncheck("#pfmax");
+  await page.fill("#pf", "3");
+  replan.litAfterMaxOff = await lit();
   await page.fill("#pf", "5");
   await page.click("#btnReapply");
   replan.back = await bundles();
@@ -378,13 +389,13 @@ const hqOnly = it => ({ ...it,
   maxRun.offField = await page.inputValue("#pf");
   maxRun.offOpen = !(await page.$eval("#pf", i => i.disabled));
   await page.fill("#pf", "5");
-  await page.press("#pf", "Enter");
+  await page.click("#btnReapply");
 
   // Apply to last scan (2026-09-26): Min sale price 70,000 drops Test Rug
   // (69,999) and Test Ring (29,999) and keeps Wall, Lamp and Ingot (20 x 4,799
   // = 95,980 a slot), with no request to Universalis. HQ only ticked at the
   // same time needs a scan: it must be named and not applied. Then back.
-  const reapply = { enabledAfterScan: !(await page.$eval("#btnReapply", b => b.disabled)) };
+  const reapply = { greyWithNoChange: await page.$eval("#btnReapply", b => b.disabled) };
   const uniBefore = seen.filter(u => u.includes("universalis.app")).length;
   await page.fill("#minprice", "70000");
   await page.check("#hqonly");
@@ -415,8 +426,9 @@ const hqOnly = it => ({ ...it,
   await page.fill("#minprice", "10000000");
   await page.click("#btnScan");
   await page.waitForFunction(() => /Nothing cleared/.test(document.getElementById("status").textContent), null, { timeout: 30000 });
-  const nothing = { status: (await page.textContent("#status")).slice(0, 30), buttonOn: !(await page.$eval("#btnReapply", b => b.disabled)) };
+  const nothing = { status: (await page.textContent("#status")).slice(0, 30), greyUntilChanged: await page.$eval("#btnReapply", b => b.disabled) };
   await page.fill("#minprice", "5000");
+  nothing.litWhenLoosened = !(await page.$eval("#btnReapply", b => b.disabled));
   await page.click("#btnReapply");
   nothing.rowsAfter = await page.evaluate(() => LAST.rows.length);
 
@@ -452,13 +464,13 @@ const hqOnly = it => ({ ...it,
   console.log("tax rule matched   :", JSON.stringify(taxRule), "(want at5 1, at3 0)");
   console.log("ladder skip        :", JSON.stringify(ladderRule), "(want first 4500, next 5000, far 20000, farImported 10)");
   console.log("re-plan, no scan   :", JSON.stringify(replan),
-              "(want ticksLeft 0, typedOnly 5, applied 3, tab Bundles3, back 5)");
+              "(want ticksLeft 0, litAtRest false, typedOnly 5, litAfterTyping true, litWhenTypedBack false, applied 3, tab Bundles3, litAfterApply false, litAfterMax false, litAfterMaxOff true, back 5)");
   console.log("max bundles        :", JSON.stringify(maxRun),
               "(want placed = allowed, field = bundles, fieldShut true, statusSame true, off keeps the count and opens the field)");
   console.log("teamcraft export   :", JSON.stringify(tc));
   console.log("apply to last scan :", JSON.stringify(reapply),
-              "(want enabled, names Test Ingot/Lamp/Wall, hqKept false, status names HQ only, newRequests 0, restored 5, minSales82 without Test Ring)");
-  console.log("nothing cleared    :", JSON.stringify(nothing), "(want status Nothing cleared, button on, 5 rows after loosening and applying)");
+              "(want greyWithNoChange true, names Test Ingot/Lamp/Wall, hqKept false, status names HQ only, newRequests 0, restored 5, minSales82 without Test Ring)");
+  console.log("nothing cleared    :", JSON.stringify(nothing), "(want status Nothing cleared, greyUntilChanged true, litWhenLoosened true, 5 rows after applying)");
   console.log("stacks and junk    :", JSON.stringify(stackRows),
               "(want Ingot stack 20, every other 1; Wall supply 2.5 (own listing out, junk at half) and Lamp 1)");
   console.log("ingot 5 slots      :", JSON.stringify(ingotTm), "(want crafts5 34, units5 100, mats5 680)");
