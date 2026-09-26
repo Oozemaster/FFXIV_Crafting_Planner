@@ -389,7 +389,7 @@ const hqOnly = it => ({ ...it,
               "(want placed = allowed, field = bundles, fieldShut/tickShut true, statusSame true, off keeps the count and opens the field)");
   console.log("teamcraft export   :", JSON.stringify(tc));
   console.log("stacks and junk    :", JSON.stringify(stackRows),
-              "(want Ingot stack 20, every other 1; Wall supply 3.5 and Lamp 1 with junk at half)");
+              "(want Ingot stack 20, every other 1; Wall supply 2.5 (own listing out, junk at half) and Lamp 1)");
   console.log("ingot 5 slots      :", JSON.stringify(ingotTm), "(want crafts5 34, units5 100, mats5 680)");
   console.log("screenshot lines   :");
   for (const l of parsed) console.log("   -", l);

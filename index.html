@@ -120,7 +120,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.25.26.2</span></p>
+    <span class="stamp">v09.25.26.3</span></p>
 </header>
 
 <div class="panel">
@@ -149,10 +149,10 @@
        (Shaun, 2026-09-19). The incoming-supply figure counts every sale on the
        board between two readings as somebody else's listing that sold; these
        rows take yours back out. The retainer names double as the list of your
-       own listings, which count as supply and are never undercut. -->
+       own listings, which are left out of supply and never undercut. -->
   <div id="ownSalesBox">
   <div class="sub" style="margin-top:20px;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600">Your sales</div>
-  <div class="hint" style="margin-top:0;margin-bottom:8px">Add each retainer by the name the market board shows; its listings count as supply and are never undercut.
+  <div class="hint" style="margin-top:0;margin-bottom:8px">Add each retainer by the name the market board shows; its listings are not counted as supply and are never undercut.
     Under it, from its Sale History window: the item, the price as it shows there (after that retainer's tax),
     the buyer, and the date and time to the minute. Sales listed here are not counted as competitors' supply.
     A screenshot of the window can be dropped on the retainer, pasted (Ctrl+V) into the one last clicked, or chosen with its button; its rows are read and added for you to check.
@@ -227,8 +227,8 @@
     the most that gathering can add back — and an expensive material is expensive because it is hard
     to get, which is a real cost however you pay it. The Crafting Materials tab is the shopping list;
     the Raw Materials tab is the same list broken down into things you can gather.</p>
-    <p><strong>Your own listings count as supply.</strong> Ten of yours already on the board means ten
-    fewer to make. They are never undercut and never bought from.</p>
+    <p><strong>Your own listings are not supply.</strong> If ten are needed, the bundle says ten, even
+    with ten of yours already on the board. They are never undercut and never bought from.</p>
     <p style="margin-bottom:0"><strong>Progress does not save automatically</strong> from a file on your
     hard drive — the browser forbids it. Use Save and Load session, or host the page.</p>
   </div>
@@ -571,9 +571,9 @@ async function loadMarket(world, ids, onProgress, hqIds, fullIds) {
         history: (it.recentHistory || []).filter(h => h.pricePerUnit > 0)
         .map(h => ({ p: h.pricePerUnit, q: h.quantity || 1, t: h.timestamp || 0, hq: !!h.hq,
                      buyer: h.buyerName || "" })),
-        // Your own retainers stay in the list, flagged. They count as supply —
-        // ten already listed means ten fewer to make — but are never undercut
-        // and cannot be bought from. priceOf and the ladder read the flag.
+        // Your own retainers stay in the list, flagged. They are left out of
+        // supply (since 2026-09-25), never undercut, and cannot be bought
+        // from. priceOf and the ladder read the flag.
         listings: (it.listings || [])
         .map(l => ({ price: l.pricePerUnit, qty: l.quantity || 1, hq: !!l.hq,
                      who: l.retainerName || "", id: l.listingID || "",
@@ -655,17 +655,19 @@ function priceOf(m, quality) {
   const med = median(recent.map(h => h.p));
   if (!med) return null;
   const raw = (m.listings || []).filter(l => ofQuality(quality, l));
-  // Current Listings: everything on the board, your own included. Ten of yours
-  // already listed means ten fewer to make — whatever you priced them at, since
-  // repricing is your call. A rival's listing above the junk cutoff counts half
-  // (JUNK_SHARE); `real` is the rest, the listings that set the price and the
-  // crowding count.
-  const real = raw.filter(l => l.mine || l.price <= med * ABSURD);
-  const supply = raw.reduce((a, l) => a + (l.mine ? l.qty : listedUnits(l, med * ABSURD)), 0);
-  const mine = real.filter(l => l.mine).reduce((a, l) => a + l.qty, 0);
+  // Current Listings: the rivals on the board. Your own listings are left out
+  // (Shaun, 2026-09-25: "If 10 wall planters are needed, it should tell me to
+  // list 10, even if I'm already listing 10"); from 2026-09-13 until then they
+  // counted as supply at any price. A rival's listing above the junk cutoff
+  // counts half (JUNK_SHARE); `real` is the rest, the listings that set the
+  // price and the crowding count.
+  const real = raw.filter(l => !l.mine && l.price <= med * ABSURD);
+  const supply = raw.reduce((a, l) => a + (l.mine ? 0 : listedUnits(l, med * ABSURD)), 0);
+  const mine = raw.filter(l => l.mine).reduce((a, l) => a + l.qty, 0);
   // Twenty or more real listings is a crowded market. A craft is fetched whole,
   // so this is a count; a material is fetched twenty deep, and if all twenty
   // are real there are more beyond them, so for it `supply` is a floor.
+  // Your own are not in it: they are not ahead of you.
   const crowded = real.length >= LISTINGS;
   // Twenty listings from five retainers is a very different market from twenty
   // listings from twenty people. Count the people.
@@ -678,7 +680,7 @@ function priceOf(m, quality) {
   const listAt = lowest ? Math.max(1, Math.min(lowest - 1, med)) : med;
   return { median: med, listAt, supply, mine, sellers, priceFrom: recent.length,
            realListings: real.length, openMarket: rivals.length === 0,
-           crowded, clipped: !!m.clipped, junk: raw.length - real.length, hq: quality === "hq" };
+           crowded, clipped: !!m.clipped, junk: raw.filter(l => !l.mine).length - real.length, hq: quality === "hq" };
 }
 // A material's market price: the median of its last 40 sales of either quality.
 const mkt = id => PRICE.get(id) || 0;
@@ -1271,9 +1273,21 @@ function inflowNote(r) {
     (i.truncated ? " Universalis returned its limit of 200 sales and the oldest is newer than the reading, so the sold count is a floor." : "");
 }
 
+// A bundle's rows as listed: a craft sold in stacks becomes one row per
+// listing. The materials are costed for all its listings together and each
+// row shows that per-unit figure: crafted one listing at a time, a yield of 3
+// would waste the odd units of every listing (7 crafts per 20 instead of 34
+// per 100).
+const listingRows = items => items.flatMap(it => {
+  if (!(stackOf(it.row) > 1 && it.k > 1)) return [it];
+  const tm = trueMargin(it.row, it.k, it.before);
+  return Array.from({ length: it.k }, (_, j) => ({ ...it, k: 1, part: j, tm }));
+});
+const marginOf = it => it.tm || trueMargin(it.row, it.k, it.before);
+
 // Order and priority-band a bundle by its real, ladder-walked value.
 function bandFor(p) {
-  const val = it => { const t = trueMargin(it.row, it.k, it.before); return t.units * t.each; };
+  const val = it => it.k * stackOf(it.row) * marginOf(it).each;
   const items = p.items.slice().sort((a, b) => val(b) - val(a));
   const total = items.reduce((a, it) => a + val(it), 0);
   let run = 0;
@@ -1420,7 +1434,7 @@ function render() {
 
   if (TAB === "pf") {
     pfs.forEach((p, i) => {
-      const { items, total } = bandFor(p);
+      const { items, total } = bandFor({ items: listingRows(p.items) });
       const jobs = [...new Set(items.map(x => x.row.job))].sort();
       html += '<div class="pf"><header><div><h3>Bundle ' + (i + 1) + '</h3>' +
         '<div class="jobs">' + jobs.join(" &middot; ") + ' &nbsp;—&nbsp; ' + p.slots + ' slots</div></div>' +
@@ -1431,9 +1445,10 @@ function render() {
         '<th title="List price after tax, less the materials.">Profit each</th><th>Expected</th><th>Made</th></tr></thead><tbody>';
       for (const it of items) {
         const r = it.row, [label, cls] = PRI[it.priority];
-        const tm = trueMargin(r, it.k, it.before);
-        // An Overflow row keeps its own tally, apart from the craft's plain row.
-        const key = r.itemId + (it.over ? ":o" + (i + 1) : "");
+        const tm = marginOf(it);
+        // An Overflow row keeps its own tally, apart from the craft's plain row,
+        // and each listing of a stack its own.
+        const key = r.itemId + (it.over ? ":o" + (i + 1) : "") + (it.part != null ? ":s" + it.part : "");
         const made = PROGRESS.crafted[key] || 0;
         // A craft carries no tags. Shaun, 2026-09-16: "The items in the bundles
         // don't need any tags. If I need more info, we'll add tags later."
@@ -1448,8 +1463,11 @@ function render() {
           (x.unit ? " @ " + gil(x.unit) : " (never sold, costed at 0)") +
           (x.canGather ? " (gatherable)" : "") + sealTag(x)).join(" &middot; ");
         html += '<tr' + (made >= it.k ? ' class="done"' : '') + '><td class="l"><span class="qty">' +
-          // A stack shows as slots x stack: "3×20" is three listings of twenty.
-          it.k + '&times;' + (stackOf(r) > 1 ? stackOf(r) : '') + '</span> ' + itemLink(r.name) + (it.over ? overTag() : '') + '<div class="mats">' + mats + '</div></td>' +
+          // A stack is one row per listing, "Test Ingot ×20" (Shaun, 2026-09-25:
+          // "5 listings should be 5 different rows"); a single unit keeps "20×".
+          (stackOf(r) > 1 ? '</span>' + itemLink(r.name) + ' <span class="qty">&times;' + stackOf(r) + '</span>'
+                          : it.k + '&times;</span> ' + itemLink(r.name)) +
+          (it.over ? overTag() : '') + '<div class="mats">' + mats + '</div></td>' +
           '<td class="l"><span class="pri ' + cls + '">' + label + '</span></td>' +
           '<td class="l">' + esc(r.job) + '</td><td>' + r.level + '</td><td>' + gil(r.listAt) + '</td>' +
           '<td title="' + num(r.supply) + ' units listed now' +
@@ -1471,7 +1489,7 @@ function render() {
           '<td title="At market price for materials the profit is ' + gil(r.margin) +
             ' per unit, which is what the ranking used. This is the figure with materials at what ' +
             'the listings actually ask for the quantity shown.">' +
-            gil(tm.each) + '</td><td>' + gil(tm.units * tm.each) + '</td>' +
+            gil(tm.each) + '</td><td>' + gil(it.k * stackOf(r) * tm.each) + '</td>' +
           '<td><input class="track" type="number" min="0" max="99" data-craft="' + key +
           '" data-need="' + it.k + '" value="' + made + '"></td></tr>';
       }
@@ -1631,7 +1649,7 @@ function addRetainer(r) {
   sec.className = "retainer";
   sec.innerHTML =
     '<div class="row">' +
-      '<label class="check" style="padding:0;gap:8px;font-size:13px;color:var(--muted)" title="The name as the market board shows it. Its listings count as supply and are never undercut or bought from.">' +
+      '<label class="check" style="padding:0;gap:8px;font-size:13px;color:var(--muted)" title="The name as the market board shows it. Its listings are not counted as supply, and are never undercut or bought from.">' +
         'Retainer<input type="text" data-r="name" placeholder="Spicy-soy" style="width:180px;padding:4px 8px"></label>' +
       '<label class="check" style="padding:0;gap:8px;font-size:13px;color:var(--muted)" title="The Sale History window shows what you received, after the market tax. The tool adds it back to match the sale against Universalis, which records what the buyer paid.">' +
         'Tax on its sales %<input type="number" data-r="tax" min="0" max="25" style="width:64px;padding:4px 8px"></label>' +
@@ -2372,7 +2390,7 @@ $("btnScan").onclick = async () => {
       " marked as self-supplied, so no market limit applies to " +
       (mine > 1 ? "them" : "it") + ".";
     if (MY_RETAINERS.size) msg += "  Listings from your " + MY_RETAINERS.size +
-      " retainer" + (MY_RETAINERS.size > 1 ? "s" : "") + " count as supply and are never undercut.";
+      " retainer" + (MY_RETAINERS.size > 1 ? "s" : "") + " are left out of supply and never undercut.";
     if (res.missed) msg += "  " + res.missed + " of the " + res.total +
       " items priced (recipes plus all their materials) did not load: " +
       res.batchesFailed + " request" + (res.batchesFailed > 1 ? "s" : "") +

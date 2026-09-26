@@ -20,7 +20,7 @@ built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older des
 of it that remain unbuilt.
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.25.26.2`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.25.26.3`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)
@@ -274,10 +274,11 @@ sales between 9,500 and 45,999 gil, median 18,999. Priced at 18,999.
 ### 2. Current listings
 
 ```
-realListings = listings of the quality being sold, priced at or below marketPrice x 2.0,
-               your own retainers included
+realListings = rivals' listings of the quality being sold, priced at or below
+               marketPrice x 2.0
 supply       = sum of quantities across realListings
              + 0.5 x sum of quantities of rivals' listings above marketPrice x 2.0
+               (your own retainers' listings are in neither term)
 sellers      = count of distinct retainerName across realListings
 ```
 
@@ -291,10 +292,11 @@ price, not the crowding count below, not the material ladder. All items shows th
 
 **Your own retainers** are the names of the retainer sections under Your sales (section
 6a; since v09.19.26.1 — until then one setup field, default `Spicy-soy, Momo-mochi`).
-Each must be the name as the market board shows it, matched case-insensitively. Their
-listings **count as supply whatever they are priced at**, above the junk cutoff included: ten of yours already on the board means ten fewer to
-make, and repricing them is your call. They are never undercut (section 3) and never
-bought from (section 4). (The row was tagged "N yours listed" until 2026-09-16; the count
+Each must be the name as the market board shows it, matched case-insensitively. **Since
+v09.25.26.3 their listings are left out of supply** (Shaun, 2026-09-25: "If 10 wall
+planters are needed, it should tell me to list 10, even if I'm already listing 10"), and
+out of the crowding count. From 2026-09-13 until then they counted in full at any price.
+They are never undercut (section 3) and never bought from (section 4). (The row was tagged "N yours listed" until 2026-09-16; the count
 is still in the row's data.)
 
 **Supply age.** The item's last Universalis upload can be days old, so the supply figure is
@@ -458,8 +460,11 @@ the median is over every sale fetched (up to 200), then over the listings on the
 then 1 (my fallback, not yet reviewed by Shaun). A slot is worth `stack x` a unit's profit:
 the allocator ranks and balances on that, Max of one item counts slots, the Minimum sale
 price applies to `listAt x stack` (a stack of 20 at 300 is a 6,000-gil listing), and
-Mats each / Profit each stay per unit while Expected is the whole quantity. A bundle row
-reads `3×20 Iron Ingot` for three listings of twenty; All items has a Stack column; Export
+Mats each / Profit each stay per unit while Expected is the whole quantity. A craft sold in
+stacks shows one bundle row per listing, `Iron Ingot ×20` three times for three listings
+(v09.25.26.3; Shaun: "5 listings should be 5 different rows"), each with its own List at
+and Made tally; the materials are costed for the listings together and each row shows
+that per-unit figure; All items has a Stack column; Export
 To Teamcraft sends units (60), and Teamcraft works out the crafts. Weekly demand and
 supply were always in units and are unchanged.
 
@@ -667,7 +672,7 @@ Judgment calls, not game rules.
 | Minimum sales per week | 1 | Items below this are excluded. |
 | Staleness cutoff | 180 days | Items not uploaded within this period are excluded. |
 | Supply-age warning | 24 hours | Items not uploaded within this period are flagged in the row's data; the tag that showed it was removed 2026-09-16. |
-| Own retainers | none | The retainer sections under Your sales. Listings from these count as supply but are never undercut or bought from. |
+| Own retainers | none | The retainer sections under Your sales. Listings from these are left out of supply and never undercut or bought from. |
 | Material price cap | 1.0x market price | No unit of material is ever charged above the median of its last 40 sales. |
 | Vendor-cheap threshold | 100 gil | Materials a vendor sells below this are classed as buy rather than gather. |
 | Priority bands | 50% / 80% | Cumulative share of a bundle's expected value. |
