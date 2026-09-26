@@ -120,7 +120,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.26.26.8</span></p>
+    <span class="stamp">v09.26.26.9</span></p>
 </header>
 
 <div class="panel">
@@ -128,7 +128,7 @@
     <h2>Setup</h2>
     <!-- Filters and sorting again on the last scan's market data, no new
          requests (Shaun, 2026-09-26: "adjust my filters after the scan"). -->
-    <button type="button" id="btnReapply" class="secondary small" disabled title="Sort and filter the last scan again with every setting as it is now — bundle shape included — without scanning the market again. World, HQ only, Max recipe level, newly ticked categories and a higher Duty Level need a new scan.">&#10003; Apply to last scan</button>
+    <button type="button" id="btnReapply" class="secondary small" disabled title="Sort and filter the last scan again with every setting as it is now — bundle shape included — without scanning the market again. On a loaded session, filters can be tightened but not loosened past what was scanned. World, HQ only, Max recipe level, newly ticked categories and a higher Duty Level need a new scan.">&#10003; Apply to last scan</button>
   </div>
   <div class="grid">
     <div><label class="field" for="world">World</label><input type="text" id="world" value="Seraph"></div>
@@ -2187,9 +2187,11 @@ function applySession(d) {
       '<label class="on"><input type="checkbox" value="' + esc(x) + '" checked> ' + esc(x) + '</label>').join("");
     $("catPanel").hidden = false;
   }
-  LAST = { rows: d.rows || [], cfg: c, names };
+  // The rows as saved are kept apart, so tightening a filter and then easing
+  // it back returns to them (v09.26.26.9).
+  LAST = { rows: d.rows || [], cfg: c, names, saved: d.rows || [], savedCfg: c, savedAt: Date.parse(d.saved) || Date.now() };
   render();
-  $("btnReapply").disabled = true;
+  $("btnReapply").disabled = false;
 }
 
 // Bundles to make, Slots per bundle, Max of one item and Safety margin had a
@@ -2338,10 +2340,8 @@ $("btnLoad").onclick = async () => {
 // market data, filtered and sorted afresh. Only what the scan fetched can be
 // used, so a setting that needs other data is named and left as it was.
 function reapply() {
-  if (!LAST || !LAST.pool) {
-    setStatus("There is no market data to apply the settings to. A loaded session keeps its bundles, not the market; scan again.", true);
-    return;
-  }
+  if (!LAST) { setStatus("Scan the market or open a session first.", true); return; }
+  if (!LAST.pool) return reapplySaved();
   const fetched = new Set(LAST.pool.map(r => r.itemId));
   const needScan = [];
   const chosen = new Set([...document.querySelectorAll("#cats input:checked")].map(i => i.value));
@@ -2374,6 +2374,57 @@ function reapply() {
     false);
 }
 $("btnReapply").onclick = reapply;
+
+// The same for a loaded session (v09.26.26.9). A session keeps the rows that
+// passed at scan time — price, demand, stack, supply, cost — but not the
+// market behind them, so a setting can be tightened here and not loosened:
+// a row the scan's filters left out was never saved. Shaun, 2026-09-26: his
+// session was scanned at Min sales 1, and raising it to 3 did nothing because
+// the button was off for sessions.
+function reapplySaved() {
+  const base = LAST.saved, scan = LAST.savedCfg || {};
+  const dutyOn = $("xDuty").checked, dutyLevel = Math.max(1, +$("dutyLevel").value || 1);
+  const cfg = readCfg(dutyOn, dutyLevel);
+  const kept = [];
+  if (cfg.world !== scan.world) { kept.push("World"); cfg.world = scan.world; }
+  if (!!cfg.hq !== !!scan.hq) { kept.push("HQ only"); cfg.hq = scan.hq; }
+  const looser = [];
+  if (cfg.minSales < (scan.minSales || 0)) looser.push("Min sales per week below " + scan.minSales);
+  if (cfg.minPrice < (scan.minPrice || 0)) looser.push("Min sale price below " + gil(scan.minPrice));
+  if (cfg.staleDays > (scan.staleDays || 180)) looser.push("older data than " + scan.staleDays + " days");
+  if (dutyOn && !scan.duty) looser.push("Duty Items");
+  else if (dutyOn && dutyLevel > (scan.dutyLevel || 0)) looser.push("a Duty Level above " + scan.dutyLevel);
+  if (cfg.mine !== scan.mine || JSON.stringify(cfg.ownSales) !== JSON.stringify(scan.ownSales))
+    kept.push("retainers and sales (the saved supply figures stay as scanned)");
+  // Only a category shown in the panel and unticked drops its rows; a row from
+  // a category the session did not list stays (his 09-26 file had two).
+  const unticked = new Set([...document.querySelectorAll("#cats input:not(:checked)")].map(i => i.value));
+  const at = LAST.savedAt || Date.now();
+  const duty = new Map(dutyCandidates(dutyLevel).map(d => [d.itemId, d]));
+  const rows = [];
+  for (const r0 of base) {
+    const r = { ...r0 };
+    if (r.duty) {
+      // The duty list is in the page, so a lower Duty Level re-times the item.
+      const d = dutyOn && duty.get(r.itemId);
+      if (!d) continue;
+      r.level = d.level; r.minutes = d.minutes; r.cost = d.minutes * DUTY_RATE;
+    } else if (unticked.has(r.category)) continue;
+    if (r.demand < cfg.minSales) continue;
+    if (r.listAt * stackOf(r) < cfg.minPrice) continue;
+    if (r.updated && at - r.updated > cfg.staleDays * DAY) continue;
+    const revenue = r.listAt * (1 - cfg.tax);
+    r.margin = revenue - r.cost;
+    if (r.margin <= 0) continue;
+    if (r.duty) r.gilPerMin = revenue / r.minutes;
+    rows.push(r);
+  }
+  LAST = { rows, cfg, names: LAST.names, saved: base, savedCfg: scan, savedAt: at };
+  render();
+  setStatus("Applied the settings to the loaded session: " + rows.length + " of its " + base.length + " rows pass." +
+    (looser.length ? "  Looser than when it was scanned, so rows it left out cannot come back without a scan: " + looser.join(", ") + "." : "") +
+    (kept.length ? "  Not applied, because they need a new scan: " + kept.join(", ") + "." : ""), false);
+}
 
 // Every setting as the scan reads it.
 function readCfg(dutyOn, dutyLevel) {
@@ -2554,7 +2605,7 @@ $("btnScan").onclick = async () => {
     $("btnScan").disabled = false;
     // However the scan ended, the button follows whether there is market data
     // to apply the settings to.
-    $("btnReapply").disabled = !(LAST && LAST.pool);
+    $("btnReapply").disabled = !(LAST && (LAST.pool || LAST.saved));
   }
 };
 </script>

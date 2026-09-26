@@ -20,7 +20,11 @@ scan again with the settings as they now stand, without a new request: the minim
 and sales, data age, tax, margin, bundle shape, retainers and sales, fewer categories, a
 lower Duty Level. World, HQ only, Max recipe level, newly ticked categories and a higher
 Duty Level need data the scan did not fetch; the status line names them and they are not
-applied. A loaded session has bundles but no market data behind it, so the button is off.
+applied. On a **loaded session** (since v09.26.26.9) it re-filters the saved rows: filters
+can be tightened — min sales and price, data age, tax, margin, fewer categories, a lower
+Duty Level — but not loosened past where the scan had them, because rows the scan's
+filters left out were never saved; the status line says so. Until then the button was off
+for sessions, which is why raising Min sales per week on a loaded session did nothing.
 Every other setting takes effect at the next scan.
 
 **This document describes the tool as it is built today.** The incoming-supply term was
@@ -29,7 +33,7 @@ built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older des
 of it that remain unbuilt.
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.26.26.8`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.26.26.9`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)
