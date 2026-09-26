@@ -142,28 +142,6 @@ UNI[9007] = { lastUploadTime: NOW * 1000,
   listings: [{ pricePerUnit: 4800, quantity: 99, hq: false, retainerName: "Rival-ingot" }],
   recentHistory: ingotHist };
 
-// Gatherables and Fish (2026-09-25). Test Log: gathering level 20, sold in
-// fives at 2,000 (stack 5, a 9,495-gil slot at 1,899). Test Carp: fish, level
-// 30, sold singly at 8,000. Test Eel: fish, level 60 — above the cap of 50,
-// never a candidate. None of the three may be looked up or priced unless its
-// box is ticked.
-const gRow = (rid, iid, name, cat, lvl) => ({ row_id: rid, fields: {
-  Item: { row_id: iid, fields: { Name: name, IsUntradable: false, ItemSearchCategory: { row_id: 40 },
-          ItemUICategory: { fields: { Name: cat } } } },
-  GatheringItemLevel: { row_id: lvl, fields: { GatheringItemLevel: lvl, Stars: 0 } } } });
-const SHEETS = {
-  GatheringItem: [gRow(1, 9008, "Test Log", "Lumber", 20)],
-  FishParameter: [gRow(1, 9009, "Test Carp", "Seafood", 30), gRow(2, 9010, "Test Eel", "Seafood", 60)],
-  SpearfishingItem: []
-};
-UNI[9008] = { lastUploadTime: NOW * 1000,
-  listings: [{ pricePerUnit: 1900, quantity: 5, hq: false, retainerName: "Rival-log" }],
-  recentHistory: [...Array(10)].map((_, i) => ({ hq: false, pricePerUnit: 2000, quantity: 5, timestamp: NOW - i * DAY - 60, buyerName: "Log-" + i })) };
-UNI[9009] = { lastUploadTime: NOW * 1000, listings: [],
-  recentHistory: [...Array(10)].map((_, i) => ({ hq: false, pricePerUnit: 8000, quantity: 1, timestamp: NOW - i * DAY - 60, buyerName: "Carp-" + i })) };
-UNI[9010] = { lastUploadTime: NOW * 1000, listings: [],
-  recentHistory: [{ hq: false, pricePerUnit: 9000, quantity: 1, timestamp: NOW - 60, buyerName: "Eel" }] };
-
 // Universalis' hq=true returns only the HQ side of listings and history, and
 // nothing at all for an item that cannot be HQ.
 const hqOnly = it => ({ ...it,
@@ -184,11 +162,7 @@ const hqOnly = it => ({ ...it,
       if (url.includes("sheets=Recipe")) return json({ results: RECIPES });
       return json({ results: [] });                       // GilShopItem etc.
     }
-    if (url.includes("v2.xivapi.com/api/sheet")) {
-      const sheet = url.split("/api/sheet/")[1].split("?")[0];
-      // One page each; a second page (after=) is empty.
-      return json({ rows: url.includes("after=") ? [] : (SHEETS[sheet] || []) });
-    }
+    if (url.includes("v2.xivapi.com/api/sheet")) return json({ rows: [] });
     // The tracker's listing history. The page asks for this month and last; the
     // same fixture answers both, and the page must not double-count a reading.
     // Since 2026-09-26 one gzipped file on the data branch, served as raw bytes.
@@ -401,22 +375,6 @@ const hqOnly = it => ({ ...it,
   await page.check("#hqonly");
   const hq = await scan();
 
-  // Gatherables and Fish: until now both boxes were unticked, so no fish sheet
-  // may have been asked for and none of the three items priced. Then tick
-  // both and scan again.
-  const priced = id => seen.some(u => u.includes("universalis.app") && u.split("/").pop().split("?")[0].split(",").includes(String(id)));
-  const gather = { boxesAtStart: await page.evaluate(() => [$("xGather").checked, $("xFish").checked]),
-    fishSheetAsked: seen.some(u => /api\/sheet\/(FishParameter|SpearfishingItem)/.test(u)),
-    pricedBefore: [9008, 9009, 9010].filter(priced) };
-  await page.uncheck("#hqonly");
-  await page.check("#xGather");
-  await page.check("#xFish");
-  await scan();
-  gather.rows = await page.evaluate(() => LAST.rows.filter(r => r.gathered).map(r => ({ name: r.name, job: r.job, level: r.level,
-    stack: r.stack, listAt: r.listAt, cost: r.cost, margin: Math.round(r.margin * 100) / 100, slots: slotsFor(r, LAST.cfg.margin) })));
-  gather.eelPriced = priced(9010);
-  gather.status = (await page.textContent("#status")).slice(0, 60);
-
   console.log("version stamp      :", stamp);
   console.log("own-retainer field :", JSON.stringify(mineField), "(page start " + JSON.stringify(mineAtStart) +
               ", with a third " + JSON.stringify(mineWithThree) + ")");
@@ -434,8 +392,6 @@ const hqOnly = it => ({ ...it,
   console.log("stacks and junk    :", JSON.stringify(stackRows),
               "(want Ingot stack 20, every other 1; Wall supply 2.5 (own listing out, junk at half) and Lamp 1)");
   console.log("ingot 5 slots      :", JSON.stringify(ingotTm), "(want crafts5 34, units5 100, mats5 680)");
-  console.log("gatherables, fish  :", JSON.stringify(gather),
-              "(want boxes false/false, no fish sheet, nothing priced before; then Test Log (Gathering, stack 5, 1,899, cost 0) and Test Carp (Fisher), no Test Eel, Eel never priced)");
   console.log("screenshot lines   :");
   for (const l of parsed) console.log("   -", l);
   for (const [label, r] of [["HQ only OFF", nq], ["HQ only ON", hq]]) {

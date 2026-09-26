@@ -65,10 +65,11 @@ async function getJSON(url, tries = 4) {
 
 // ---------------------------------------------------------------------------
 // Which items to watch: whatever the planner can put in a bundle (Shaun,
-// 2026-09-25) — every tradeable recipe result at any level, stars included,
-// and every gatherable item and fish — cut to what Universalis lists as
-// marketable. Until 2026-09-25 it was the furnishing recipes at level 50 and
-// under, 398 items. Fetched fresh each run, so a patch's new items are picked
+// 2026-09-25) — every tradeable recipe result at any level, stars included —
+// cut to what Universalis lists as marketable. Gatherables and fish were in it
+// for one day; Shaun dropped them from the planner on 2026-09-26 ("This is a
+// *crafting* planner"). Until 2026-09-25 it was the furnishing recipes at level
+// 50 and under, 398 items. Fetched fresh each run, so a patch's new items are picked
 // up by themselves.
 // ---------------------------------------------------------------------------
 const linkId = v => (v && typeof v === "object") ? (v.row_id ?? v.value ?? 0) : (v ?? 0);
@@ -82,15 +83,6 @@ async function search(sheet, query, fields, onRow) {
     url = `${XIV}/search?cursor=${encodeURIComponent(d.next)}&fields=${encodeURIComponent(fields)}&limit=500`;
   }
 }
-async function sheet(name, fields, onRow) {
-  let after = 0;
-  for (let page = 0; page < 60; page++) {
-    const d = await getJSON(`${XIV}/sheet/${name}?fields=${encodeURIComponent(fields)}&limit=500` + (after ? `&after=${after}` : ""));
-    const rows = d.rows || [];
-    for (const r of rows) { onRow(r.fields || {}); after = Math.max(after, r.row_id || 0); }
-    if (rows.length < 500) break;
-  }
-}
 
 async function watchList() {
   const marketable = new Set(await getJSON(`${UNI}/marketable`));
@@ -102,8 +94,6 @@ async function watchList() {
   };
   await search("Recipe", "RecipeLevelTable.ClassJobLevel>=0", "ItemResult.Name,ItemResult.ItemUICategory.Name",
                f => add(f.ItemResult, "Recipe"));
-  for (const s of ["GatheringItem", "FishParameter", "SpearfishingItem"])
-    await sheet(s, "Item.Name,Item.ItemUICategory.Name", f => add(f.Item, s));
   return [...seen.values()].sort((a, b) => a.id - b.id);
 }
 
