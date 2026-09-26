@@ -12,6 +12,9 @@ scroll over a number field changes it and must not re-plan by itself (v09.19.26.
 Bundles to make (v09.25.26.1) works the number out instead: as few bundles as hold every
 unit the shortage allows (section 8), re-planned at once when ticked. **Export To
 Teamcraft** copies a Teamcraft import link for every craft in the bundles (section 8).
+**Gatherables** and **Fish** (v09.25.26.6), two boxes above the category list, add items
+with no recipe to the scan (section 6). Both start unticked, and nothing about them is
+looked up or priced unless its box is ticked.
 Every other setting takes effect at the next scan.
 
 **This document describes the tool as it is built today.** The incoming-supply term was
@@ -20,7 +23,7 @@ built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older des
 of it that remain unbuilt.
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.25.26.5`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.25.26.6`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)
@@ -467,6 +470,19 @@ per listing and he chose the combined row),
 and its Made tally counts listings; All items has a Stack column; Export
 To Teamcraft sends units (60), and Teamcraft works out the crafts. Weekly demand and
 supply were always in units and are unchanged.
+
+**Gatherables and Fish** (Shaun, 2026-09-25, v09.25.26.6). Two boxes above the category
+list, both unticked by default; **nothing is looked up or priced for either unless its box
+is ticked**. Gatherables are every marketable item in XIVAPI's GatheringItem sheet (mining
+and botany); Fish are FishParameter (rod) and SpearfishingItem. Marketable means tradeable
+with a market board category. The level is the item's gathering level, stars included,
+against Max recipe level as it stood at the last Load recipes. Such an item has no
+materials: it costs 0 and its profit is the list price after tax. Everything else —
+price, demand, supply, incoming supply, stack, allocation — is the same as for a craft. A
+row reads job "Gathering" or "Fisher"; HQ only does not apply to them. An item that is
+also a craft in a ticked category stays a craft. Counted 2026-09-25, marketable: 770
+gatherable items (306 at level 50 or below), 1,434 rod fish (542), 291 spearfish (none
+below level 61).
 
 ### 6a. Incoming supply
 

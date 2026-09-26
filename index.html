@@ -61,6 +61,7 @@
     cursor:pointer; }
   .groups label.on { background:var(--accent-soft); border-color:var(--accent); color:var(--accent); }
   .groups label input { width:auto; }
+  #extras label:has(input:checked) { background:var(--accent-soft); border-color:var(--accent); color:var(--accent); }
   .cats { display:flex; flex-wrap:wrap; gap:6px; max-height:190px; overflow-y:auto; }
   .cats label { display:inline-flex; align-items:center; gap:6px; font-size:13px; padding:5px 10px;
     border:1px solid var(--line); border-radius:20px; cursor:pointer; }
@@ -120,7 +121,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.25.26.5</span></p>
+    <span class="stamp">v09.25.26.6</span></p>
 </header>
 
 <div class="panel">
@@ -181,6 +182,13 @@
 <div class="panel" id="catPanel" hidden>
   <h2>What to consider crafting</h2>
   <div class="groups" id="groups"></div>
+  <!-- Items with no recipe, as candidates in their own right (Shaun,
+       2026-09-25). Unticked by default; nothing here is looked up or
+       priced unless its box is ticked. -->
+  <div class="groups" id="extras">
+    <label title="Every marketable item from a mining or botany node at or under Max recipe level (its gathering level). No materials, so profit is the sale price after tax."><input type="checkbox" id="xGather"> Gatherables</label>
+    <label title="Every marketable fish, rod or spear, at or under Max recipe level (its gathering level). No materials, so profit is the sale price after tax."><input type="checkbox" id="xFish"> Fish</label>
+  </div>
   <div class="cats" id="cats"></div>
   <div class="hint">Furnishings are selected by default: slow-moving and high-value, which suits a once-a-week restock. Groups match against the game's own category names, so a few land oddly.</div>
 </div>
@@ -376,6 +384,7 @@ let LADDER = new Map();   // item id -> [{price, qty}] ascending. The cheapest l
                           // materials there may not be enough on the board at all.
 let CAN_HQ = new Set();   // item ids the game allows a high-quality version of
 let LAST = null, TAB = "pf";
+let LOADED_LEVEL = 50;    // Max recipe level at the last Load recipes
 let PROGRESS = { crafted: {}, gathered: {} };
 
 // ---------------------------------------------------------------------------
@@ -519,6 +528,29 @@ async function loadGatherable() {
     if (id > 0) set.add(id);
   });
   return set;
+}
+
+// Gathered items as candidates (Shaun, 2026-09-25): the same demand, supply,
+// incoming supply and stack as a craft, with no materials, so they cost 0 and
+// profit is the list price after tax. The level is the item's gathering level,
+// stars included, against Max recipe level. Shaped like a recipe with no
+// ingredients so the rest of the tool takes them as they are; never put in
+// BY_ITEM, which is recipes only. Only called when its box is ticked.
+const GATHER_FIELDS = "Item.Name,Item.IsUntradable,Item.ItemSearchCategory,Item.ItemUICategory.Name," +
+                      "GatheringItemLevel.GatheringItemLevel,GatheringItemLevel.Stars";
+async function loadGathered(sheets, maxLevel, job) {
+  const out = new Map();
+  for (const sheet of sheets) await loadSheet(sheet, GATHER_FIELDS, row => {
+    const f = row.fields || {}, it = f.Item, id = linkId(it), lv = f.GatheringItemLevel?.fields || {};
+    const level = lv.GatheringItemLevel || 0;
+    // Marketable: tradeable and with a market board category.
+    if (!(id > 1) || it?.fields?.IsUntradable || !linkId(it?.fields?.ItemSearchCategory)) return;
+    if (!level || level > maxLevel || out.has(id)) return;
+    out.set(id, { itemId: id, name: linkName(it), yield: 1, job, gathered: true,
+      level: level + "\u2605".repeat(lv.Stars || 0),
+      category: it.fields?.ItemUICategory?.fields?.Name || "Other", ingredients: [] });
+  });
+  return [...out.values()];
 }
 
 async function loadSeals() {
@@ -2071,6 +2103,7 @@ function applySession(d) {
   if (c.minSales != null) $("minsales").value = c.minSales;
   if (c.margin != null) $("margin").value = Math.round(c.margin * 100);
   $("hqonly").checked = !!c.hq;
+  $("xGather").checked = !!c.gather; $("xFish").checked = !!c.fish;
   // Retainers, each with its tax, and the flat sales list handed back to them
   // by name. Format 4 and older: one field of names, one tax, no names on
   // the sales, so those go under the first retainer.
@@ -2189,6 +2222,7 @@ $("btnLoad").onclick = async () => {
     setBar(null);
     setStatus("Asking XIVAPI for every recipe at level " + maxLevel + " or below…");
     RECIPES = await loadRecipes(maxLevel);
+    LOADED_LEVEL = maxLevel;
     BY_ITEM = new Map(RECIPES.map(r => [r.itemId, r]));
     fillItemNames(RECIPES.flatMap(r => [r.name, ...r.ingredients.map(i => i.name)]));
     setStatus("Loading the gathering list…");
@@ -2256,7 +2290,20 @@ $("btnScan").onclick = async () => {
   try {
     const chosen = new Set([...document.querySelectorAll("#cats input:checked")].map(i => i.value));
     const pool = RECIPES.filter(r => chosen.has(r.category));
-    if (!pool.length) { setStatus("Tick at least one category first.", true); return; }
+    // Gathered items only when their box is ticked. A craft already in the
+    // pool stays a craft.
+    const extras = [];
+    if ($("xGather").checked) {
+      setStatus("Asking XIVAPI for gatherable items at level " + LOADED_LEVEL + " or below…");
+      extras.push(...await loadGathered(["GatheringItem"], LOADED_LEVEL, "Gathering"));
+    }
+    if ($("xFish").checked) {
+      setStatus("Asking XIVAPI for fish at level " + LOADED_LEVEL + " or below…");
+      extras.push(...await loadGathered(["FishParameter", "SpearfishingItem"], LOADED_LEVEL, "Fisher"));
+    }
+    const inPool = new Set(pool.map(r => r.itemId));
+    for (const g of extras) if (!inPool.has(g.itemId)) { pool.push(g); inPool.add(g.itemId); }
+    if (!pool.length) { setStatus("Tick at least one category, or Gatherables or Fish, first.", true); return; }
 
     const cfg = { world: $("world").value.trim() || "Seraph",
       portfolios: +$("pf").value || 5, pfMax: $("pfmax").checked, slots: +$("slots").value || 20,
@@ -2264,7 +2311,7 @@ $("btnScan").onclick = async () => {
       staleDays: +$("stale").value || 180, minPrice: +$("minprice").value || 0,
       minSales: +$("minsales").value || 0,
       margin: (+$("margin").value >= 0 ? +$("margin").value : 20) / 100,
-      hq: $("hqonly").checked,
+      hq: $("hqonly").checked, gather: $("xGather").checked, fish: $("xFish").checked,
       mine: $("mine").value.trim(),
       // Your retainers, the tax each one's sales cleared at, and the sales
       // themselves, each carrying its retainer's name and tax.
@@ -2360,7 +2407,7 @@ $("btnScan").onclick = async () => {
     // Two different populations get counted here and saying so matters: `pool` is
     // the recipes in the ticked categories, `res.total` is those plus every
     // material in their trees, all of which need a price.
-    let msg = rows.length + " of " + pool.length + " recipes passed the filters.";
+    let msg = rows.length + " of " + pool.length + " " + (extras.length ? "items" : "recipes") + " passed the filters.";
     // Incoming supply: how much of the result rests on a measurement.
     const measured = rows.filter(r => r.inflowInfo && r.inflowInfo.known);
     if (!READINGS.files.length) {
