@@ -120,7 +120,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.25.26.1</span></p>
+    <span class="stamp">v09.25.26.2</span></p>
 </header>
 
 <div class="panel">
@@ -331,6 +331,8 @@ function elementalOrder(id) {
   return 99;
 }
 
+// A count that can be fractional (listings above the junk cutoff count half).
+const num = x => Number.isInteger(x) ? String(x) : x.toFixed(1);
 function median(a) {
   if (!a.length) return 0;
   const s = a.slice().sort((x, y) => x - y), m = s.length >> 1;
@@ -612,7 +614,14 @@ async function loadMarket(world, ids, onProgress, hqIds, fullIds) {
   return { market: out, hqMarket: outHq, missed, unknown, batchesFailed, retried: failed.length, total: unique.length };
 }
 
-const ABSURD = 2.0;   // listings above this multiple of the real sale price are not competition
+const ABSURD = 2.0;   // the junk cutoff: a multiple of the real sale price
+// A rival's listing above the junk cutoff is not a price anyone pays, but the
+// seller is real and undercuts: Shaun, 2026-09-25, "assuming half those
+// suppliers will undercut and re-enter the market". So its units count half in
+// Current Listings and in both readings of incoming supply. Fractions are kept;
+// the shortage is rounded once, at the end.
+const JUNK_SHARE = 0.5;
+const listedUnits = (l, cutoff) => l.price <= cutoff ? l.qty : l.qty * JUNK_SHARE;
 
 // How many listings to fetch per material, cheapest first. Twenty is also the
 // crowding threshold for a craft: twenty or more real listings means there is
@@ -646,12 +655,13 @@ function priceOf(m, quality) {
   const med = median(recent.map(h => h.p));
   if (!med) return null;
   const raw = (m.listings || []).filter(l => ofQuality(quality, l));
-  // Current Listings: everything genuinely on the board, your own included. Ten
-  // of yours already listed means ten fewer to make — whatever you priced them
-  // at, since repricing is your call. A rival's listing above the junk cutoff
-  // is decoration; yours is stock.
+  // Current Listings: everything on the board, your own included. Ten of yours
+  // already listed means ten fewer to make — whatever you priced them at, since
+  // repricing is your call. A rival's listing above the junk cutoff counts half
+  // (JUNK_SHARE); `real` is the rest, the listings that set the price and the
+  // crowding count.
   const real = raw.filter(l => l.mine || l.price <= med * ABSURD);
-  const supply = real.reduce((a, l) => a + l.qty, 0);
+  const supply = raw.reduce((a, l) => a + (l.mine ? l.qty : listedUnits(l, med * ABSURD)), 0);
   const mine = real.filter(l => l.mine).reduce((a, l) => a + l.qty, 0);
   // Twenty or more real listings is a crowded market. A craft is fetched whole,
   // so this is a count; a material is fetched twenty deep, and if all twenty
@@ -899,7 +909,7 @@ function weeklyDemand(history, nowSec) {
 //   PreviousListings  units on the board at the tracker's reading at least
 //                     INFLOW_DAYS before the live reading, or the oldest reading
 //                     it has if none is that old; your retainers' listings removed,
-//                     and listings above ABSURD times the market price removed
+//                     and listings above ABSURD times the market price at half
 //   NewListings       units on the board at the live reading, same two removals
 //   Purchases         units sold between the two readings, per Universalis, less
 //                     the sales you entered as your own. Every sale, whatever
@@ -913,13 +923,13 @@ function weeklyDemand(history, nowSec) {
 // a negative means a listing was pulled, or a sale happened that Universalis
 // never saw, and either way nothing new was listed.
 //
-// The two readings count only listings within ABSURD times the market price —
-// the same cutoff as Current Listings, and the same median for both readings
-// so that a price shift between them does not read as listings appearing or
-// vanishing. A listing nobody will buy at is not competition on either date;
-// on the first day of data 14 Amdapori Wall Lanterns sat above the cutoff at
-// both readings and would otherwise have counted as 14 against 14. Shaun,
-// 2026-09-15. Purchases are not cut: a sale is a sale. The tracker still
+// The two readings count listings above ABSURD times the market price at half
+// (JUNK_SHARE) — the same cutoff and the same share as Current Listings, and
+// the same median for both readings so that a price shift between them does
+// not read as listings appearing or vanishing. From 2026-09-15 they were left
+// out entirely (14 Amdapori Wall Lanterns sat above the cutoff at both
+// readings); from 2026-09-25 they count half, because those sellers undercut.
+// Purchases are not cut: a sale is a sale. The tracker still
 // records every listing, and crafts are fetched with ALL_LISTINGS so the live
 // board is as complete as the tracker's. Both are counted on the quality the
 // craft is sold as. The period ends at the live reading's upload time, not at
@@ -934,8 +944,8 @@ function incomingSupply(m, quality, median, readings, ownSales, itemName) {
   const prev = old.length ? old[old.length - 1] : before[0];
 
   const cutoff = median * ABSURD;
-  const units = ls => ls.filter(l => ofQuality(quality, l) && !isMine(l.who) && l.price <= cutoff)
-                        .reduce((a, l) => a + l.qty, 0);
+  const units = ls => ls.filter(l => ofQuality(quality, l) && !isMine(l.who))
+                        .reduce((a, l) => a + listedUnits(l, cutoff), 0);
   const prevUnits = units(prev.listings);
   const newUnits  = units(m.listings || []);
 
@@ -996,6 +1006,30 @@ function safeUnits(demand, supply, incoming, margin) {
   return Math.max(0, Math.floor(Math.max(0, demand - supply - (incoming || 0)) * (1 - margin)));
 }
 
+// Stacks (Shaun, 2026-09-25). Materials sell in varying quantities, so one
+// bundle slot is one listing of the quantity the item usually sells in: the
+// median Quantity per sale over the last two weeks, on the quality it is sold
+// as. "If an item usually sells for 20, one bundle slot is 20, not 99."
+// Furnishings sell one at a time, so theirs is 1 and nothing changes for them.
+// No sale in two weeks: the median over every sale fetched (up to 200); no
+// sale at all: over the listings on the board; nothing at all: 1.
+const STACK_DAYS = 14;
+function stackSize(m, quality, nowSec) {
+  const hist = (m.history || []).filter(h => ofQuality(quality, h));
+  const since = (nowSec || Date.now() / 1000) - STACK_DAYS * 86400;
+  const recent = hist.filter(h => h.t >= since);
+  let qs = (recent.length ? recent : hist).map(h => h.q);
+  if (!qs.length) qs = (m.listings || []).filter(l => ofQuality(quality, l)).map(l => l.qty);
+  return Math.max(1, Math.round(median(qs) || 1));
+}
+const stackOf = r => r.stack || 1;       // rows saved before stacks are 1
+// The shortage in slots: units over the stack size, still rounded once, at
+// the end, so a stack of 1 gives exactly safeUnits.
+const slotsFor = (r, margin) =>
+  Math.max(0, Math.floor(Math.max(0, r.demand - r.supply - (r.inflow || 0)) * (1 - margin) / stackOf(r)));
+// What one slot is worth at market price for materials: a unit's margin times the stack.
+const perSlot = r => r.margin * stackOf(r);
+
 function buildCandidates(pool, cfg) {
   const rows = [], now = Date.now();
   for (const r of pool) {
@@ -1004,7 +1038,11 @@ function buildCandidates(pool, cfg) {
     const hqRec = HQMARKET.get(r.itemId);
     const m = hqRec || MARKET.get(r.itemId);
     const p = priceOf(m, hqRec ? "hq" : "nq");
-    if (!p || p.listAt < cfg.minPrice) continue;
+    if (!p) continue;
+    // The minimum price is for what one slot sells for: a stack of 20 at 300
+    // is a 6,000-gil listing.
+    const stack = stackSize(m, hqRec ? "hq" : "nq");
+    if (p.listAt * stack < cfg.minPrice) continue;
     // Demand: HQ sales alone for an HQ craft; every sale otherwise (Shaun, 2026-09-13).
     const demand = weeklyDemand(m.history);
     if (demand < cfg.minSales) continue;
@@ -1036,7 +1074,7 @@ function buildCandidates(pool, cfg) {
 
     // Nothing caps quantity any more. Every world in the region is reachable, so
     // a material is never unobtainable — only dearer, and the ladder handles that.
-    rows.push({ ...r, ...p, demand, cost, margin, parts,
+    rows.push({ ...r, ...p, demand, cost, margin, parts, stack,
       inflow: inflow.known ? inflow.perWeek : 0, inflowInfo: inflow,
       hasSeal: parts.some(x => x.seal),
       // A part with no market price is in the cost at zero. Say so.
@@ -1061,13 +1099,13 @@ function buildCandidates(pool, cfg) {
 function allocate(rows, totalSlots, maxPer, margin, caps) {
   const out = [];
   let left = totalSlots;
-  for (const r of rows.slice().sort((a, b) => b.margin - a.margin)) {
+  for (const r of rows.slice().sort((a, b) => perSlot(b) - perSlot(a))) {
     if (!left) break;
-    let k = Math.min(left, maxPer, safeUnits(r.demand, r.supply, r.inflow, margin));
+    let k = Math.min(left, maxPer, slotsFor(r, margin));
     if (caps && caps.has(r.itemId)) k = Math.min(k, caps.get(r.itemId));
     if (k > 0) { out.push({ row: r, k }); left -= k; }
   }
-  return out.sort((a, b) => b.k * b.row.margin - a.k * a.row.margin);
+  return out.sort((a, b) => b.k * perSlot(b.row) - a.k * perSlot(a.row));
 }
 
 // Max (Shaun, 2026-09-25): instead of a set number of bundles, as few as hold
@@ -1077,7 +1115,7 @@ function allocate(rows, totalSlots, maxPer, margin, caps) {
 // leaves units out, one more bundle at a time until they all fit.
 function plan(rows, cfg) {
   if (!cfg.pfMax) return planFor(rows, cfg);
-  const units = rows.map(r => safeUnits(r.demand, r.supply, r.inflow, cfg.margin));
+  const units = rows.map(r => slotsFor(r, cfg.margin));
   const want = units.reduce((a, u) => a + u, 0);
   let n = Math.max(1, Math.ceil(want / cfg.slots), ...units.map(u => Math.ceil(u / cfg.maxPer)));
   for (;;) {
@@ -1140,12 +1178,12 @@ function planFor(rows, cfg) {
 // "Overflow still capped at 20/bundle, split across bundles, with the bundles
 // balanced for profit."
 function overflow(pfs, rows, cfg) {
-  const val = b => b.k * b.row.margin;
+  const val = b => b.k * perSlot(b.row);
   const inBundle = (p, id) => p.items.filter(it => it.row.itemId === id).reduce((a, it) => a + it.k, 0);
   const placed = new Map();
   for (const p of pfs) for (const it of p.items) placed.set(it.row.itemId, (placed.get(it.row.itemId) || 0) + it.k);
-  for (const r of rows.slice().sort((a, b) => b.margin - a.margin)) {
-    let left = safeUnits(r.demand, r.supply, r.inflow, cfg.margin) - (placed.get(r.itemId) || 0);
+  for (const r of rows.slice().sort((a, b) => perSlot(b) - perSlot(a))) {
+    let left = slotsFor(r, cfg.margin) - (placed.get(r.itemId) || 0);
     while (left > 0) {
       const room = pfs.filter(p => p.slots < cfg.slots && inBundle(p, r.itemId) < cfg.maxPer);
       if (!room.length) break;
@@ -1162,7 +1200,7 @@ function overflow(pfs, rows, cfg) {
 // thing. When nothing has room for the whole quantity, the item is cut down to
 // the largest free space anywhere rather than dropped, and the cut is reported.
 function partition(bundles, n, perPortfolio) {
-  const val = b => b.k * b.row.margin;
+  const val = b => b.k * perSlot(b.row);
   const pf = Array.from({ length: n }, () => ({ items: [], slots: 0, value: 0 }));
   const trimmed = [];
   for (const b of bundles) {
@@ -1185,23 +1223,30 @@ function partition(bundles, n, perPortfolio) {
 // how many of each to make, work out what the materials really cost by walking
 // the listings for that quantity, and report that instead. `mats` is the
 // material cost per unit — every gil of it you gather yourself is extra profit.
+//
+// `k` and `before` are slots. A slot is a stack of row.stack units, and a
+// recipe that yields more than one makes them in fewer crafts, so the
+// materials are for ceil(units / yield) crafts and the cost is per unit made
+// (Shaun, 2026-09-25: "divide the material cost per unit by the yield").
+const craftsFor = (row, slots) => Math.ceil(slots * stackOf(row) / Math.max(1, row.yield || 1));
 function trueMargin(row, k, before) {
   let cost = 0, unpriced = false;
+  const units = k * stackOf(row), crafts = craftsFor(row, k), done = craftsFor(row, before || 0);
   const short = [];   // materials the world's listings cannot cover for this quantity
   for (const x of row.parts) {
     // Never sold on this world: costed at zero and tagged. See the cost model note.
     if (!x.unit) { unpriced = true; continue; }
     // Marked in MANUAL_NOTES as something you farm rather than buy: charged at
     // the flat market rate, not walked up a listing ladder you will not touch.
-    if (x.selfSource) { cost += x.unit * x.qty * k; continue; }
-    const need = x.qty * k, r = ladderCost(x.id, need, x.qty * (before || 0));
+    if (x.selfSource) { cost += x.unit * x.qty * crafts; continue; }
+    const need = x.qty * crafts, r = ladderCost(x.id, need, x.qty * done);
     cost += r.cost;
     if (r.imported) short.push({ name: x.name, need, have: need - r.imported,
                                  craftable: x.craftable, canGather: x.canGather });
   }
   const revenue = row.listAt * (1 - (LAST && LAST.cfg ? LAST.cfg.tax : 0.05));
-  const mats = cost / Math.max(1, k);
-  return { each: revenue - mats, mats, short, unpriced };
+  const mats = cost / Math.max(1, units);
+  return { each: revenue - mats, mats, short, unpriced, units };
 }
 
 // The "short: material" tag was removed 2026-09-16 at Shaun's direction: most
@@ -1228,7 +1273,7 @@ function inflowNote(r) {
 
 // Order and priority-band a bundle by its real, ladder-walked value.
 function bandFor(p) {
-  const val = it => it.k * trueMargin(it.row, it.k, it.before).each;
+  const val = it => { const t = trueMargin(it.row, it.k, it.before); return t.units * t.each; };
   const items = p.items.slice().sort((a, b) => val(b) - val(a));
   const total = items.reduce((a, it) => a + val(it), 0);
   let run = 0;
@@ -1248,8 +1293,9 @@ function bandFor(p) {
 function materialsFor(items, raw) {
   const q = new Map();
   for (const it of items) {
-    if (raw) expandRaw(it.row.itemId, it.k, q, 0, new Set());
-    else for (const part of it.row.parts) q.set(part.id, (q.get(part.id) || 0) + part.qty * it.k);
+    // A slot is a stack; expandRaw divides by the yield itself.
+    if (raw) expandRaw(it.row.itemId, it.k * stackOf(it.row), q, 0, new Set());
+    else for (const part of it.row.parts) q.set(part.id, (q.get(part.id) || 0) + part.qty * craftsFor(it.row, it.k));
   }
   return [...q.entries()].map(([id, qty]) => {
     const name = nameOf(id);
@@ -1402,15 +1448,18 @@ function render() {
           (x.unit ? " @ " + gil(x.unit) : " (never sold, costed at 0)") +
           (x.canGather ? " (gatherable)" : "") + sealTag(x)).join(" &middot; ");
         html += '<tr' + (made >= it.k ? ' class="done"' : '') + '><td class="l"><span class="qty">' +
-          it.k + '&times;</span> ' + itemLink(r.name) + (it.over ? overTag() : '') + '<div class="mats">' + mats + '</div></td>' +
+          // A stack shows as slots x stack: "3×20" is three listings of twenty.
+          it.k + '&times;' + (stackOf(r) > 1 ? stackOf(r) : '') + '</span> ' + itemLink(r.name) + (it.over ? overTag() : '') + '<div class="mats">' + mats + '</div></td>' +
           '<td class="l"><span class="pri ' + cls + '">' + label + '</span></td>' +
           '<td class="l">' + esc(r.job) + '</td><td>' + r.level + '</td><td>' + gil(r.listAt) + '</td>' +
-          '<td title="' + r.supply + ' units listed now, ' +
+          '<td title="' + num(r.supply) + ' units listed now' +
+            (r.junk ? ' (listings above twice the sale price count half)' : '') + ', ' +
             (r.inflowInfo && r.inflowInfo.known ? 'plus ' + r.inflow.toFixed(1) + ' a week being listed by others, ' : '') +
             'against weekly demand of ' + r.demand.toFixed(1) + '. Gap of ' +
             Math.max(0, r.demand - r.supply - (r.inflow || 0)).toFixed(1) + ', of which at most ' +
-            safeUnits(r.demand, r.supply, r.inflow, LAST.cfg.margin == null ? 0.2 : LAST.cfg.margin) +
-            ' should be filled after the safety margin.">' + r.supply + (r.clipped ? '+' : '') +
+            slotsFor(r, LAST.cfg.margin == null ? 0.2 : LAST.cfg.margin) * stackOf(r) +
+            ' should be filled after the safety margin' + (stackOf(r) > 1 ? ', in stacks of ' + stackOf(r) : '') +
+            '.">' + num(r.supply) + (r.clipped ? '+' : '') +
             // "1+3/wk vs 5/wk": listed now, plus what others list in a week,
             // against demand (Shaun, 2026-09-19). No earlier reading, no term.
             (r.inflowInfo && r.inflowInfo.known ? '+' + r.inflow.toFixed(0) + '/wk' : '') +
@@ -1422,7 +1471,7 @@ function render() {
           '<td title="At market price for materials the profit is ' + gil(r.margin) +
             ' per unit, which is what the ranking used. This is the figure with materials at what ' +
             'the listings actually ask for the quantity shown.">' +
-            gil(tm.each) + '</td><td>' + gil(it.k * tm.each) + '</td>' +
+            gil(tm.each) + '</td><td>' + gil(tm.units * tm.each) + '</td>' +
           '<td><input class="track" type="number" min="0" max="99" data-craft="' + key +
           '" data-need="' + it.k + '" value="' + made + '"></td></tr>';
       }
@@ -1433,10 +1482,10 @@ function render() {
 
   if (TAB === "all") {
     const ranked = rows.slice().sort((a, b) =>
-      (b.margin * Math.min(1, b.demand / (b.supply + 1))) -
-      (a.margin * Math.min(1, a.demand / (a.supply + 1))));
+      (perSlot(b) * Math.min(1, b.demand / (b.supply + 1))) -
+      (perSlot(a) * Math.min(1, a.demand / (a.supply + 1))));
     html += '<div class="tablewrap"><table><thead><tr><th class="l">Item</th><th class="l">Job</th>' +
-      '<th>Lvl</th><th>Sells for</th><th>Sales/wk</th><th>Units listed</th>' +
+      '<th>Lvl</th><th>Sells for</th><th title="Units in one bundle slot: the median quantity per sale over the last two weeks.">Stack</th><th>Sales/wk</th><th>Units listed</th>' +
       '<th title="Units a week that other sellers list, measured between the tracker\'s reading at least two weeks back and the board now. Blank where there is no earlier reading.">Listed/wk</th>' +
       '<th title="Material cost per unit at the market price of each ingredient">Mats each</th>' +
       '<th title="List price after tax, less the materials">Profit each</th>' +
@@ -1444,11 +1493,12 @@ function render() {
     for (const r of ranked.slice(0, 300))
       html += '<tr><td class="l">' + itemLink(r.name) + '</td>' +
         '<td class="l">' + esc(r.job) + '</td><td>' + r.level + '</td><td>' + gil(r.listAt) + '</td>' +
+        '<td>' + stackOf(r) + '</td>' +
         '<td>' + r.demand.toFixed(1) + '</td>' +
-        '<td title="' + r.realListings + ' listings holding ' + r.supply + ' units">' +
-        r.supply + (r.clipped ? '+' : '') +
+        '<td title="' + r.realListings + ' listings within twice the sale price, plus half the units of any above it: ' + num(r.supply) + ' units">' +
+        num(r.supply) + (r.clipped ? '+' : '') +
         (r.junk ? ' <span style="color:var(--muted)" title="' + r.junk +
-          ' listing(s) priced more than 2x what this item actually sells for. Treated as decoration, not competition.">(+' +
+          ' listing(s) priced more than 2x what this item actually sells for. Their units count half: the sellers are real and tend to undercut.">(+' +
           r.junk + ' overpriced)</span>' : '') + '</td>' +
         '<td title="' + esc(inflowNote(r)) + '">' +
           (r.inflowInfo && r.inflowInfo.known ? r.inflow.toFixed(1) : '<span style="color:var(--muted)">—</span>') + '</td>' +
@@ -1500,8 +1550,9 @@ function render() {
     const url = teamcraftLink(allItems);
     const ok = await copyText(url);
     const crafts = new Set(allItems.map(it => it.row.itemId)).size;
+    const units = allItems.reduce((a, it) => a + it.k * stackOf(it.row), 0);
     $("teamcraftStatus").textContent = ok
-      ? "Link copied: " + crafts + " crafts, " + used + " units. Paste it into the address bar."
+      ? "Link copied: " + crafts + " crafts, " + units + " units. Paste it into the address bar."
       : "Could not reach the clipboard. The link: " + url;
   };
   shapeTicks();
@@ -1509,13 +1560,14 @@ function render() {
 
 // Teamcraft's import link (Shaun, 2026-09-25): ffxivteamcraft.com/import/ and
 // then, base64, "itemId,recipeId,quantity" rows joined by ";". The recipe is
-// left "null" and Teamcraft picks it, as its own import page does. A craft in
-// two bundles through Overflow is one row with both quantities added.
+// left "null" and Teamcraft picks it, as its own import page does. Quantity is
+// in units (slots x stack); Teamcraft works out the crafts. A craft in two
+// bundles through Overflow is one row with both quantities added.
 const COPY_ICON = '<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">' +
   '<rect x="5.5" y="5.5" width="8" height="9" rx="1.5"/><path d="M10.5 5.5V3a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 3v6.5A1.5 1.5 0 0 0 4 11h1.5"/></svg>';
 function teamcraftLink(items) {
   const qty = new Map();
-  for (const it of items) qty.set(it.row.itemId, (qty.get(it.row.itemId) || 0) + it.k);
+  for (const it of items) qty.set(it.row.itemId, (qty.get(it.row.itemId) || 0) + it.k * stackOf(it.row));
   const rows = [...qty].map(([id, k]) => id + ",null," + k).join(";");
   // Escaped because base64 can hold "/" and "+", which a path would misread;
   // Teamcraft decodes the segment before reading it.

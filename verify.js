@@ -14,12 +14,12 @@ const DAY = 86400;
 
 // One craftable furnishing, one material it needs. Prices are chosen so every
 // changed behaviour has something to bite on.
-const mkRecipe = (rid, iid, name, cat, ingId, ingName, qty, canHq) => ({
+const mkRecipe = (rid, iid, name, cat, ingId, ingName, qty, canHq, yld) => ({
   row_id: rid,
   fields: {
     ItemResult: { row_id: iid, fields: { Name: name, IsUntradable: false, CanBeHq: !!canHq,
                   ItemUICategory: { fields: { Name: cat } } } },
-    AmountResult: 1,
+    AmountResult: yld || 1,
     AmountIngredient: [qty, 0, 0, 0, 0, 0, 0, 0],
     Ingredient: [{ row_id: ingId, fields: { Name: ingName } }],
     // A row of the level table, as XIVAPI returns it: the row number is not the
@@ -43,7 +43,12 @@ const RECIPES = [
   // 4. can be HQ. NQ sells at 30,000, HQ at 50,000, one listing of each. With
   //    the box off it must price and count on NQ; with it on, on HQ. Its
   //    material (Test Plank) must be unaffected either way.
-  mkRecipe(6, 9006, "Test Ring", "Ring", 9002, "Test Plank", 1, true)
+  mkRecipe(6, 9006, "Test Ring", "Ring", 9002, "Test Plank", 1, true),
+  // 5. a material sold in stacks (2026-09-25). Yield 3, two Test Planks a
+  //    craft. Ten sales of 20 in the last two weeks and five of 99 before them,
+  //    so the stack is 20 (the median over two weeks, not 99 and not the
+  //    median over all fifteen). Material cost per unit is 2 x 1,000 / 3.
+  mkRecipe(7, 9007, "Test Ingot", "Metal", 9002, "Test Plank", 2, false, 3)
 ];
 
 // Test Wall: 60 sales. The newest 40 sit at 80,000; the 20 oldest at 20,000.
@@ -127,6 +132,15 @@ const UNI = {
     ])
   }
 };
+
+// Test Ingot: 5,000 a unit. Ten sales of 20 in the last 10 days, five of 99
+// at 16 to 20 days old. One rival listing of 99 at 4,800.
+const ingotHist = [
+  ...[...Array(10)].map((_, i) => ({ hq: false, pricePerUnit: 5000, quantity: 20, timestamp: NOW - i * DAY - 3600, buyerName: "Ingot-" + i })),
+  ...[...Array(5)].map((_, i) => ({ hq: false, pricePerUnit: 5000, quantity: 99, timestamp: NOW - (16 + i) * DAY, buyerName: "Ingot-old-" + i }))];
+UNI[9007] = { lastUploadTime: NOW * 1000,
+  listings: [{ pricePerUnit: 4800, quantity: 99, hq: false, retainerName: "Rival-ingot" }],
+  recentHistory: ingotHist };
 
 // Universalis' hq=true returns only the HQ side of listings and history, and
 // nothing at all for an item that cannot be HQ.
@@ -304,6 +318,10 @@ const hqOnly = it => ({ ...it,
   };
 
   const nq = await scan();
+  const stackRows = await page.evaluate(() => LAST.rows.map(r => ({ name: r.name, stack: r.stack, supply: r.supply,
+    slots: slotsFor(r, LAST.cfg.margin), perUnit: Math.round(r.margin * 100) / 100 })));
+  const ingotTm = await page.evaluate(() => { const r = LAST.rows.find(r => r.name === "Test Ingot"); if (!r) return null;
+    const t = trueMargin(r, 5, 0); return { crafts5: craftsFor(r, 5), units5: t.units, mats5: t.mats, each5: Math.round(t.each * 100) / 100 }; });
 
   // Bundles to make re-plans the last scan in place, no scan (2026-09-19),
   // but only once its tick is clicked: typing 3 alone must change nothing and
@@ -338,7 +356,7 @@ const hqOnly = it => ({ ...it,
   maxRun.fieldShut = await page.$eval("#pf", i => i.disabled);
   maxRun.tickShut = await tickOff();
   maxRun.placed = await slotsUsed();
-  maxRun.allowed = await page.evaluate(() => LAST.rows.reduce((a, r) => a + safeUnits(r.demand, r.supply, r.inflow, LAST.cfg.margin), 0));
+  maxRun.allowed = await page.evaluate(() => LAST.rows.reduce((a, r) => a + slotsFor(r, LAST.cfg.margin), 0));
   maxRun.statusSame = (await page.textContent("#status")) === statusBefore;
   // Export To Teamcraft: the link goes to the clipboard; catch it and read it back.
   await page.evaluate(() => { window.__copied = null; navigator.clipboard.writeText = async t => { window.__copied = t; }; });
@@ -370,6 +388,9 @@ const hqOnly = it => ({ ...it,
   console.log("max bundles        :", JSON.stringify(maxRun),
               "(want placed = allowed, field = bundles, fieldShut/tickShut true, statusSame true, off keeps the count and opens the field)");
   console.log("teamcraft export   :", JSON.stringify(tc));
+  console.log("stacks and junk    :", JSON.stringify(stackRows),
+              "(want Ingot stack 20, every other 1; Wall supply 3.5 and Lamp 1 with junk at half)");
+  console.log("ingot 5 slots      :", JSON.stringify(ingotTm), "(want crafts5 34, units5 100, mats5 680)");
   console.log("screenshot lines   :");
   for (const l of parsed) console.log("   -", l);
   for (const [label, r] of [["HQ only OFF", nq], ["HQ only ON", hq]]) {

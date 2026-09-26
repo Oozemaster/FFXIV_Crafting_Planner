@@ -20,7 +20,7 @@ built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older des
 of it that remain unbuilt.
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.25.26.1`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.25.26.2`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)
@@ -277,10 +277,17 @@ sales between 9,500 and 45,999 gil, median 18,999. Priced at 18,999.
 realListings = listings of the quality being sold, priced at or below marketPrice x 2.0,
                your own retainers included
 supply       = sum of quantities across realListings
+             + 0.5 x sum of quantities of rivals' listings above marketPrice x 2.0
 sellers      = count of distinct retainerName across realListings
 ```
 
-Anything above the cutoff is excluded from competition and shown as "overpriced".
+A rival's listing above the cutoff is not a price anyone pays, but since v09.25.26.2 its
+units count **half** (Shaun, 2026-09-25: the competitors are real and undercut, "assuming
+half those suppliers will undercut and re-enter the market"). Until then they counted
+nothing. The fraction is kept — the Supply cell can read `3.5` — and the shortage is
+rounded once, at the end (section 6). Those listings still set nothing else: not the
+price, not the crowding count below, not the material ladder. All items shows them as
+"(+N overpriced)".
 
 **Your own retainers** are the names of the retainer sections under Your sales (section
 6a; since v09.19.26.1 — until then one setup field, default `Spicy-soy, Momo-mochi`).
@@ -341,8 +348,10 @@ elsewhere: the median. Shaun, 2026-09-13.
 
 The ranking uses this rule for a single craft (the cheapest rungs). The bundle view
 re-runs it for the quantity recommended and shows that in Mats each; the difference is
-the cheapest rungs running out. Divided by yield for recipes that make more than one per
-craft. Shards and crystals are materials like any other.
+the cheapest rungs running out. Both are divided by yield for recipes that make more than
+one per craft: the bundle view buys materials for ceil(units ÷ yield) crafts and divides by
+the units made (Shaun, 2026-09-25; until v09.25.26.2 only the ranking divided). Shards and
+crystals are materials like any other.
 
 Until 2026-09-16 a row whose materials ran short was tagged "short: material name", with a
 tooltip saying how many were needed, how many were listed, and whether the material has a
@@ -435,6 +444,25 @@ one-decimal rate is in the tooltip and in the Listed/wk column on All items.
 The margin covers everything the model still cannot see. It leaves a shortage open rather
 than closing it, on the reasoning that the marginal seller is the one who gets undercut.
 
+**Stacks** (Shaun, 2026-09-25, v09.25.26.2). Materials sell in varying quantities, so a
+bundle slot is one listing of the quantity the item usually sells in, not one unit:
+
+```
+stack    = median Quantity per sale over the last 14 days (quality as sold), rounded
+shortage = floor((weeklyDemand - supply - incomingSupply) x (1 - safetyMargin) / stack)   in slots
+```
+
+"If an item usually sells for 20, one bundle slot is 20, not 99." Still one rounding, so a
+stack of 1 — every furnishing — gives exactly the figure above. With no sale in 14 days
+the median is over every sale fetched (up to 200), then over the listings on the board,
+then 1 (my fallback, not yet reviewed by Shaun). A slot is worth `stack x` a unit's profit:
+the allocator ranks and balances on that, Max of one item counts slots, the Minimum sale
+price applies to `listAt x stack` (a stack of 20 at 300 is a 6,000-gil listing), and
+Mats each / Profit each stay per unit while Expected is the whole quantity. A bundle row
+reads `3×20 Iron Ingot` for three listings of twenty; All items has a Stack column; Export
+To Teamcraft sends units (60), and Teamcraft works out the crafts. Weekly demand and
+supply were always in units and are unchanged.
+
 ### 6a. Incoming supply
 
 What other sellers list in a week. Shaun's formula, 2026-09-14; junk cutoff added
@@ -446,7 +474,7 @@ incomingSupply = max(0, newListings - previousListings + purchases) / weeks
 
 | Term | Meaning |
 |---|---|
-| `previousListings` | Units on the board at the tracker's reading at least **14 days** before the live reading — the most recent such reading — or the oldest reading the tracker has if none is that old. Your own retainers' listings removed, and listings priced above **2.0x the market price** removed, the same cutoff as section 2. |
+| `previousListings` | Units on the board at the tracker's reading at least **14 days** before the live reading — the most recent such reading — or the oldest reading the tracker has if none is that old. Your own retainers' listings removed, and listings priced above **2.0x the market price** counted at half (removed entirely until v09.25.26.2), the same cutoff and share as section 2. |
 | `newListings` | Units on the board at the live reading, with the same two removals. The tracker records every listing at any price, so the live board is fetched whole too — up to 100 listings per craft rather than the cheapest 20 — and both are cut at the same point. |
 | `purchases` | Units sold between the two readings' upload times, from Universalis' sale history, less the sales you entered as your own (below). Every sale, whatever the price: a sale is a sale. |
 | `weeks` | The time between the two upload times, never less than one week. |
@@ -459,6 +487,7 @@ listed. Both readings are counted on the quality the craft is sold as (see Quali
 period ends at the live reading's upload time, not at the moment of the scan, because
 Universalis knows nothing after it.
 
+Since v09.25.26.2 listings above the cutoff count half in both readings, as in section 2.
 The junk cutoff uses today's market price for both readings, not the price at the time of
 the earlier one, so a shift in price between them does not read as listings appearing or
 vanishing. Measured on the first day of data, 2026-09-15: Amdapori Wall Lantern had 14
@@ -629,11 +658,12 @@ Judgment calls, not game rules.
 
 | Setting | Current | Effect |
 |---|---|---|
-| Junk listing cutoff | 2.0x market price | Listings above this multiple are excluded from competition, and from both readings of incoming supply. |
+| Junk listing cutoff | 2.0x market price | A rival's listings above this multiple count half in current listings and in both readings of incoming supply (excluded entirely until v09.25.26.2), and never set the price, the crowding count or the material ladder. |
+| Stack window | 14 days | The stack size is the median quantity per sale over this period. |
 | Listings fetched | Cheapest 20 per material | Twenty or more real listings is also the point at which a craft counts as too crowded to enter. |
 | Safety margin | 20% | Share of the demand-minus-supply gap deliberately left unfilled. Covers competitors and anything else the model does not see. |
 | Max of one item | 20 | Upper limit on units of a single item within one bundle. Shortage beyond it goes to other bundles as Overflow rows (section 8) while any have slots free. |
-| Minimum sale price | 5,000 gil | Items below this are excluded. |
+| Minimum sale price | 5,000 gil | Items whose one slot (list price x stack) sells for less are excluded. |
 | Minimum sales per week | 1 | Items below this are excluded. |
 | Staleness cutoff | 180 days | Items not uploaded within this period are excluded. |
 | Supply-age warning | 24 hours | Items not uploaded within this period are flagged in the row's data; the tag that showed it was removed 2026-09-16. |
