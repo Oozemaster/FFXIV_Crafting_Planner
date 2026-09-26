@@ -35,7 +35,7 @@ built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older des
 of it that remain unbuilt.
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.26.26.13`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.26.26.14`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)
@@ -772,7 +772,7 @@ Judgment calls, not game rules.
 | Duty Level default | Max recipe level − 20 | Set when Duty Items is ticked (section 8a). |
 | Max of one item | 20 | Upper limit on units of a single item within one bundle. Shortage beyond it goes to other bundles as Overflow rows (section 8) while any have slots free. |
 | Minimum sale price | 5,000 gil | Items whose one slot (list price x stack) sells for less are excluded. |
-| Minimum sales per week | 1 | Items below this are excluded. |
+| Minimum sales per week | 1 | Items selling fewer **listings** a week than this are excluded: weekly demand ÷ stack size (since v09.26.26.14; Shaun: "3 minimum sales really means 3 listings purchased" — Salt Cod Puffs, 15.5 a week in stacks of 8, is 1.9). Until then it compared units. |
 | Staleness cutoff | 180 days | Items not uploaded within this period are excluded. |
 | Supply-age warning | 24 hours | Items not uploaded within this period are flagged in the row's data; the tag that showed it was removed 2026-09-16. |
 | Own retainers | none | The retainer sections under Your sales. Listings from these are left out of supply and never undercut or bought from. |

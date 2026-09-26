@@ -120,7 +120,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.26.26.13</span></p>
+    <span class="stamp">v09.26.26.14</span></p>
 </header>
 
 <div class="panel">
@@ -139,7 +139,7 @@
     <div><label class="field" for="tax">Sales tax %</label><input type="number" id="tax" value="5" min="0" max="25"></div>
     <div><label class="field" for="stale">Ignore data older than (days)</label><input type="number" id="stale" value="180" min="1" max="730"></div>
     <div><label class="field" for="minprice">Min sale price (gil)</label><input type="number" id="minprice" value="5000" min="0" step="1000"></div>
-    <div><label class="field" for="minsales">Min sales per week</label><input type="number" id="minsales" value="1" min="0" step="0.5"></div>
+    <div><label class="field" for="minsales" title="Listings sold a week: weekly demand divided by the stack size the item sells in.">Min sales per week</label><input type="number" id="minsales" value="1" min="0" step="0.5"></div>
     <div><label class="field" for="margin">Safety margin %</label><div class="apply"><input type="number" id="margin" value="20" min="0" max="90" step="5"></div></div>
     <div><label class="field" for="hqonly">Quality</label>
       <label class="check" title="Sell as high quality. For any craft that can be HQ, its price, demand and supply come from HQ sales and HQ listings alone. Materials are unaffected: you buy whichever quality is cheapest. Crafts with no HQ version behave as normal."><input type="checkbox" id="hqonly"> HQ only</label></div>
@@ -1128,7 +1128,10 @@ function buildCandidates(pool, cfg) {
     if (p.listAt * stack < cfg.minPrice) continue;
     // Demand: HQ sales alone for an HQ craft; every sale otherwise (Shaun, 2026-09-13).
     const demand = weeklyDemand(m.history);
-    if (demand < cfg.minSales) continue;
+    // Min sales per week counts listings, not units (Shaun, 2026-09-26: "3
+    // minimum sales really means 3 listings purchased"): Salt Cod Puffs at 15.5
+    // a week in stacks of 8 is 1.9 listings a week. A stack of 1 is unchanged.
+    if (demand / stack < cfg.minSales) continue;
     // More listings than we can see means the competition is deeper than the
     // count, and by then it is not a market worth entering.
     if (p.crowded) continue;
@@ -2230,7 +2233,9 @@ function applySession(d) {
   // The rows as saved are kept apart, so tightening a filter and then easing
   // it back returns to them (v09.26.26.9).
   // A session saved before an item was blacklisted still leaves it out.
-  const saved = (d.rows || []).filter(r => !leftOut(r.itemId));
+  // Min sales counts listings since v09.26.26.14; a session saved before then
+  // may hold rows that sell fewer listings than its own minimum.
+  const saved = (d.rows || []).filter(r => !leftOut(r.itemId) && !(r.demand / stackOf(r) < (c.minSales || 0)));
   if (!GIL_SHOP) loadGilShop().then(() => {
     if (!LAST || LAST.saved !== saved) return;          // another scan or session since
     const keep = r => !leftOut(r.itemId);
@@ -2486,7 +2491,7 @@ function reapplySaved() {
       if (!d) continue;
       r.level = d.level; r.minutes = d.minutes; r.cost = d.minutes * DUTY_RATE;
     } else if (unticked.has(r.category)) continue;
-    if (r.demand < cfg.minSales) continue;
+    if (r.demand / stackOf(r) < cfg.minSales) continue;
     if (r.listAt * stackOf(r) < cfg.minPrice) continue;
     if (r.updated && at - r.updated > cfg.staleDays * DAY) continue;
     const revenue = r.listAt * (1 - cfg.tax);

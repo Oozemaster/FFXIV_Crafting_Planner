@@ -416,8 +416,9 @@ const hqOnly = it => ({ ...it,
   await page.fill("#minprice", "5000");
   await page.click("#btnReapply");
   reapply.restored = await page.evaluate(() => LAST.rows.length);
-  // Min sales per week through the button: 82 cuts Test Ring (80 a week NQ
-  // and HQ together) and keeps the rest (85 and 243). Then back to 1.
+  // Min sales per week through the button, in listings a week (2026-09-26):
+  // 82 cuts Test Ring (80 a week) and Test Ingot (243 a week in stacks of 20
+  // = 12.2 listings), keeps Wall, Rug and Lamp (85). Then back to 1.
   await page.fill("#minsales", "82");
   await page.click("#btnReapply");
   reapply.minSales82 = await page.evaluate(() => LAST.rows.map(r => r.name + " " + r.demand.toFixed(1)).sort());
@@ -489,7 +490,7 @@ const hqOnly = it => ({ ...it,
   console.log("sold for gil       :", JSON.stringify({ vendorRingInRows: nq.allRows.some(r => r[0] === "Test Vendor Ring"), status: (nq.status.match(/[0-9]+ sold by a merchant for gil left out/) || [null])[0] }),
               "(want vendorRingInRows false, status 1 sold by a merchant for gil left out)");
   console.log("apply to last scan :", JSON.stringify(reapply),
-              "(want greyWithNoChange true, names Test Ingot/Lamp/Wall, hqKept false, status names HQ only, newRequests 0, restored 5, minSales82 without Test Ring, blacklisted without Test Rug, unblacklisted 5)");
+              "(want greyWithNoChange true, names Test Ingot/Lamp/Wall, hqKept false, status names HQ only, newRequests 0, restored 5, minSales82 Lamp/Rug/Wall only (Ingot is 12.2 listings a week), blacklisted without Test Rug, unblacklisted 5)");
   console.log("nothing cleared    :", JSON.stringify(nothing), "(want status Nothing cleared, greyUntilChanged true, litWhenLoosened true, 5 rows after applying)");
   console.log("stacks and junk    :", JSON.stringify(stackRows),
               "(want Ingot stack 20, every other 1; Wall supply 2.5 (own listing out, junk at half) and Lamp 1)");
