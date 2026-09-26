@@ -191,7 +191,8 @@ const hqOnly = it => ({ ...it,
     }
     // The tracker's listing history. The page asks for this month and last; the
     // same fixture answers both, and the page must not double-count a reading.
-    if (url.includes("/data/listings-")) return route.fulfill({ status: 200, contentType: "text/csv", body: LISTINGS_CSV });
+    // Since 2026-09-26 one gzipped file on the data branch, served as raw bytes.
+    if (url.includes("/data/prev.csv.gz")) return route.fulfill({ status: 200, contentType: "application/octet-stream", body: require("zlib").gzipSync(LISTINGS_CSV) });
     if (url.includes("universalis.app")) {
       const ids = url.split("/").pop().split("?")[0].split(",").map(Number);
       const hq = url.includes("hq=true");

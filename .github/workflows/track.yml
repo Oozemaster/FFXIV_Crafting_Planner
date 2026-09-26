@@ -10,11 +10,16 @@ on:
   workflow_dispatch:        # lets you run it by hand from the Actions tab
 
 permissions:
-  contents: write           # needed so the job can commit what it collected
+  contents: write           # needed so the job can push what it collected
+
+# Two runs at once would each force-push over the other.
+concurrency: track
 
 jobs:
   track:
     runs-on: ubuntu-latest
+    # About 75 minutes for ~12,000 items when Universalis is slow (2026-09-25).
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
 
@@ -22,18 +27,27 @@ jobs:
         with:
           node-version: 24
 
+      # The data lives on its own branch, `data`, not on main (since 2026-09-26).
+      - name: Check out the data branch
+        run: |
+          git fetch --depth=1 origin data
+          git worktree add --detach store FETCH_HEAD
+
       - name: Collect today's market data
         env:
           WORLD: Seraph
-          MAX_LEVEL: 50
+          DATA_DIR: store
         run: node tracker.js
 
-      - name: Save it back to the repository
+      # One commit with no parent, pushed over the branch: files the tracker
+      # deleted (days older than six months) leave no history behind, so the
+      # branch never holds more than six months of data.
+      - name: Save it to the data branch
+        working-directory: store
         run: |
           git config user.name  "market-tracker"
           git config user.email "actions@github.com"
-          git add data
-          # Nothing changed is a normal outcome, not a failure.
-          git diff --staged --quiet && echo "no changes today" && exit 0
-          git commit -m "market data $(date -u +%Y-%m-%d)"
-          git push
+          git checkout --orphan next
+          git add -A
+          git commit -q -m "market data $(date -u +%Y-%m-%d)"
+          git push --force origin next:data

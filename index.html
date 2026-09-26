@@ -121,7 +121,7 @@
 <header>
   <h1>FFXIV Crafting Planner</h1>
   <p class="sub">Splits the week's best crafts into claimable bundles. Built for weekend restocking.
-    <span class="stamp">v09.25.26.6</span></p>
+    <span class="stamp">v09.26.26.1</span></p>
 </header>
 
 <div class="panel">
@@ -744,9 +744,12 @@ function ladderCost(id, units, skip) {
 // Listing history — where incoming supply is measured from.
 //
 // Universalis keeps no record of what was listed, only of what sold. So the
-// tracker (tracker.js, run daily by a GitHub Action) writes every listing it
-// sees to data/listings-YYYY-MM.csv, once per reading of each item, and the
-// page reads those files back at scan time.
+// tracker (tracker.js, run daily by a GitHub Action) records every listing it
+// sees, once per reading of each item, on the repository's `data` branch.
+// Since 2026-09-26 the page reads one file from there, prev.csv.gz: for each
+// item only the readings incoming supply can use (the latest at least 14 days
+// older than the item's newest, those just after it, or the oldest). Until then
+// it read two whole months of data/listings-YYYY-MM.csv from main.
 //
 // READINGS is the only code that knows the history is CSV files in this
 // repository. A database later replaces this one object; everything else
@@ -756,50 +759,34 @@ function ladderCost(id, units, skip) {
 //   readingsFor(itemId)  [{ at, listings: [{ who, price, qty, hq }] }],
 //                        oldest first. `at` is the Universalis upload time in
 //                        milliseconds, the same clock as MARKET's `updated`.
-//   names()              the tracker's watch list, data/items.csv, as item
+//   names()              the tracker's watch list, items.csv, as item
 //                        names — for the Your sales dropdown before recipes
 //                        are loaded. Never throws; [] when it cannot be had.
 // ---------------------------------------------------------------------------
 const READINGS = {
-  // Same origin first (GitHub Pages serves the repository), then the raw file
-  // on GitHub. A copy of the page opened from disk, or shown as a data: URL,
-  // cannot fetch beside itself at all, so it goes straight to GitHub.
-  urls: file => [
-    ...(/^https?:$/.test(location.protocol) ? ["data/" + file] : []),
-    "https://raw.githubusercontent.com/Oozemaster/FFXIV_Crafting_Planner/main/data/" + file],
+  // The data branch, raw. GitHub serves it to any page, this one on GitHub
+  // Pages or a copy opened from disk alike.
+  url: file => "https://raw.githubusercontent.com/Oozemaster/FFXIV_Crafting_Planner/data/" + file,
   byItem: new Map(),   // itemId -> Map(at -> listings[])
-  files: [],           // which months loaded, for the status line
+  files: [],           // which files loaded, for the status line
   count: 0,            // readings held
 
+  // A .gz file is served as plain bytes, so the browser unzips it here.
   async fetchFile(file) {
-    for (const url of this.urls(file)) {
-      try {
-        const r = await fetch(url, { cache: "no-store" });
-        if (r.ok) return await r.text();
-      } catch (e) { /* try the next address */ }
-    }
-    return null;
+    try {
+      const r = await fetch(this.url(file), { cache: "no-store" });
+      if (!r.ok) return null;
+      if (!file.endsWith(".gz")) return await r.text();
+      return await new Response(r.body.pipeThrough(new DecompressionStream("gzip"))).text();
+    } catch (e) { return null; }
   },
 
   async load(now) {
     this.byItem = new Map(); this.files = []; this.count = 0;
-    const d = new Date(now);
-    const months = [0, 1].map(back => {
-      const m = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - back, 1));
-      return m.toISOString().slice(0, 7);
-    });
-    for (const month of months) {
-      const text = await this.fetchFile("listings-" + month + ".csv");
-      if (text == null) continue;      // a month with no file yet is normal
-      this.files.push(month);
-      // A reading is whole within one file, so one seen twice — the same file
-      // served for two months, say — replaces rather than adds.
-      for (const [id, byAt] of this.parse(text)) {
-        let mine = this.byItem.get(id);
-        if (!mine) { mine = new Map(); this.byItem.set(id, mine); }
-        for (const [at, ls] of byAt) mine.set(at, ls);
-      }
-    }
+    const text = await this.fetchFile("prev.csv.gz");
+    if (text == null) return;
+    this.files.push("prev.csv.gz");
+    this.byItem = this.parse(text);
     for (const m of this.byItem.values()) this.count += m.size;
   },
 
@@ -2352,8 +2339,8 @@ $("btnScan").onclick = async () => {
     // and a craft with no HQ version behaves as normal.
     const hqIds = cfg.hq ? new Set(pool.map(r => r.itemId).filter(id => CAN_HQ.has(id))) : new Set();
 
-    // The tracker's listing history, for incoming supply. Two small files; a
-    // page opened from disk falls back to the copies on GitHub.
+    // The tracker's listing history, for incoming supply: one small file from
+    // the data branch.
     setStatus("Reading the listing history…");
     await READINGS.load(Date.now());
 

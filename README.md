@@ -23,7 +23,7 @@ built on 2026-09-15 to Shaun's formula of 2026-09-14 (section 6a); the older des
 of it that remain unbuilt.
 
 The page carries a version stamp beside its title, format `v[MM].[DD].[YY].[build]`. If it
-does not match the version you last uploaded, the upload did not take. Current: `v09.25.26.6`.
+does not match the version you last uploaded, the upload did not take. Current: `v09.26.26.1`.
 
 - [Data sources](#data-sources)
 - [Record formats](#record-formats)
@@ -45,13 +45,14 @@ vendor prices, what is gatherable. Changes only when Square Enix patches the gam
 so Universalis knows whatever somebody last looked at. This is the data that can be stale
 or absent.
 
-**The tracker's listing history** — `data/listings-YYYY-MM.csv` in this repository, written
-daily by `tracker.js` (see Tracker files). The only record anywhere of what was *listed*, as
-opposed to sold. The page fetches this month's and last month's file at scan time: from
-its own address on GitHub Pages, or from the raw file on GitHub when the page was opened
-from disk. Everything the page knows about these files is in one object, `READINGS`, with
-two calls — `load()` and `readingsFor(itemId)` — so a database could replace the files
-later without touching the calculations.
+**The tracker's listing history** — the repository's `data` branch, written daily by
+`tracker.js` (see Tracker files). The only record anywhere of what was *listed*, as opposed
+to sold. At scan time the page fetches one file from it, `prev.csv.gz` (a few hundred KB
+gzipped for every tracked item), from raw.githubusercontent.com, whether the page is on
+GitHub Pages or opened from disk. Until v09.26.26.1 it fetched this month's and last
+month's `data/listings-YYYY-MM.csv` from main. Everything the page knows about the files
+is in one object, `READINGS`, with two calls — `load()` and `readingsFor(itemId)` — so a
+database could replace them later without touching the calculations.
 
 **Tesseract.js** — the only code the page loads from outside itself, and only when a
 screenshot of the Sale History window is given to the Your sales table (section 6a).
@@ -163,61 +164,47 @@ recipe's result as recipes load.
 
 ## Tracker files
 
-Written to `data/` by a GitHub Action scheduled for 13:13 UTC daily. GitHub does not run
-scheduled jobs on time: the first 8 runs (2026-09-07 to 2026-09-14) started between 16:17
-and 18:35 UTC, which is 11:17 to 13:35 Central. Treat each reading as a midday one.
+Written by a GitHub Action scheduled for 13:13 UTC daily. GitHub does not run scheduled
+jobs on time: the first 8 runs (2026-09-07 to 2026-09-14) started between 16:17 and 18:35
+UTC, which is 11:17 to 13:35 Central. Treat each reading as a midday one.
 
 The tracker records what was listed and nothing else. It does not know whose retainers
 are whose, and it does not record sales: Universalis keeps roughly 200 weeks of those per
-item and the planner reads them live. Until 2026-09-14 it kept a `sales-YYYY-MM.csv`
-with a 48-hour window; that window missed 4 of Shaun's 11 September sales, because a
-sale only reaches Universalis when somebody next views the item, so the file was stopped
-and deleted.
+item and the planner reads them live.
 
-### `data/items.csv`
+**What it watches** (since 2026-09-26; Shaun, 2026-09-25: "track whatever is currently
+able to be listed by the planner"): every tradeable recipe result at any level, stars
+included, and every gatherable item and fish — cut to what Universalis lists as
+marketable. Until then it was the furnishing recipes at level 50 and under, 398 items.
+Measured 2026-09-25 on all 16,845 marketable items (a superset): a run took 75 minutes,
+8 of 422 batches of 40 failed with HTTP 504 (1.9% of items), and 27.4% of boards had been
+updated in the previous 24 hours, writing 41,128 listing rows (2.3 MB raw) for the day.
+Failed batches are now tried once more at the end of the run.
 
-`itemId, name, category`. Rewritten every run. 388 items through 2026-09-13; 398 from the
-next run, after the 10 Ceiling Light recipes were added to the tracker's category filter
-(it had not matched the planner's Furnishings group). Since v09.16.26.1 the page reads it
-too, through `READINGS.names()`: when a screenshot is given to Your sales before any
-recipes are loaded, these 398 names are what the rows are matched against.
+**Where it keeps it** (since 2026-09-26): the `data` branch, never main. Each run commits
+that branch's folder as one commit with no parent and force-pushes it, so a deleted file
+leaves no history behind and the branch never holds more than six months of data.
+Everything older than **183 days** is deleted (Shaun, 2026-09-25: drop all information after
+six months). Main keeps the files written before the move — `data/items.csv`,
+`data/stock-YYYY-MM.csv` and `data/listings-YYYY-MM.csv` to 2026-09-25 — in its history
+only; they were removed from main when the branch was seeded from them. The `stock` file
+was stopped on 2026-09-26: nothing read it, and every column in it is derivable from the
+listings. A caveat of GitHub's: a public repository's scheduled workflows are switched off
+after 60 days with no activity on the repository, and GitHub emails a warning first.
 
-### `data/stock-YYYY-MM.csv`
+### `items.csv`
 
-One row per item per day.
+`itemId, name, category`. Rewritten every run. Since v09.16.26.1 the page reads it too,
+through `READINGS.names()`: when a screenshot is given to Your sales before any recipes are
+loaded, these names are what the rows are matched against.
 
-```
-2026-09-07 , 6347 , 7 , 7 , 6 , 19999 , 200000 , 1788656373392
-```
+### `archive/YYYY-MM-DD.csv.gz`
 
-| Column | Value | Meaning |
-|---|---|---|
-| `date` | 2026-09-07 | Date the row was recorded. |
-| `itemId` | 6347 | Cross-reference against `items.csv`. |
-| `unitsListed` | 7 | Total units on the board. |
-| `listings` | 7 | Number of separate listings. |
-| `sellers` | 6 | Number of distinct retainers, so one retainer holds two listings. Computed, no longer shown (removed from the Supply cell 2026-09-16). |
-| `minPrice` | 19,999 | Cheapest listing. |
-| `maxPrice` | 200,000 | Most expensive listing. |
-| `lastUpload` | 1788656373392 | Unix milliseconds. 26 hours before this reading. |
-
-If `lastUpload` does not change between two dates, the second row is a repeat of the
-first, not a new observation.
-
-**Rows dated 2026-09-07 to 2026-09-14 with `lastUpload` 0 are empty boards, not
-unread items.** The tracker asked Universalis for no sale entries, and with none
-requested Universalis reports an empty board's upload time as 0 (measured 2026-09-14 on
-Riviera Wardrobe: `entries=0` gave 0, `entries=1` gave the real time). 425 of the
-3,114 rows from those eight days are affected, every one with zero listings; their true
-upload time is unknown. From 2026-09-15 the request asks for one entry and the column is
-correct.
-
-### `data/listings-YYYY-MM.csv`
-
-One row per listing per reading, from 2026-09-15. A reading is one item at one upload
-time; the tracker writes its listings the first time it sees that reading and never
-again, so a day on which nothing was refreshed adds nothing. Over the first eight days
-27% of items refreshed on a typical day, so expect roughly 1,200 rows a day.
+Gzipped. Every listing of every reading first seen on that day's run. A reading is one
+item at one Universalis upload time; the tracker writes its listings the first time it
+sees that reading and never again, so a day on which nothing was refreshed adds nothing.
+The branch was seeded on 2026-09-26 from main's `listings-2026-09.csv`, filed by each
+reading's upload date (41 days, 2026-07-20 to 2026-09-25, 1,696 readings, 13,634 rows).
 
 ```
 1789311745342 , 6347 , 28499341639806030 , Nekoquatro , 7000 , 1 , 0
@@ -225,7 +212,7 @@ again, so a day on which nothing was refreshed adds nothing. Over the first eigh
 
 | Column | Value | Meaning |
 |---|---|---|
-| `lastUpload` | 1789311745342 | The reading, in unix milliseconds. Same value as `stock`'s column. |
+| `lastUpload` | 1789311745342 | The reading, in unix milliseconds. |
 | `itemId` | 6347 | Cross-reference against `items.csv`. |
 | `listingID` | 28499341639806030 | The game's identifier for this listing (see Record formats). |
 | `retainerName` | Nekoquatro | Selling retainer. The planner removes the user's own by name. |
@@ -236,8 +223,19 @@ again, so a day on which nothing was refreshed adds nothing. Over the first eigh
 Every listing is written, whoever posted it and whatever the price: the file is the
 board as it stood, not a judgment about it. A reading that found the board empty gets
 one marker row with a blank `listingID` and quantity 0, so "nobody had this listed" is
-distinguishable from "never read". Which files the planner reads, and what it does with
-them, is described under Calculations once that is built.
+distinguishable from "never read".
+
+### `prev.csv.gz`
+
+What the page downloads: the same columns, but only the readings incoming supply can use
+(section 6a). The planner wants, per item, the most recent reading at least 14 days
+before the live board, or the oldest reading if none is that old. The live board at scan
+time is at least as new as the tracker's newest reading of the item, so this file keeps,
+per item: the latest reading at least 14 days older than the newest one, every reading up
+to 3 days after that point (for a board refreshed since the run), and the oldest when
+nothing is old enough. A handful of readings per item instead of six months of them; the
+page applies its own rule to what it gets. Measured at the seed: 398 readings, 2,429 rows,
+32 KB.
 
 ---
 
